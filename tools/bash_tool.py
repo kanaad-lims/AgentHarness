@@ -4,10 +4,46 @@ This executes commands on the host machine; it is not a sandbox. Only invoke
 it through the agent's tool-call and permission flow.
 """
 
+import re
 import subprocess
 
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_OUTPUT_CHARACTERS = 20_000
+
+_QUOTED_WINDOWS_PATH = re.compile(
+    r"""(?P<quote>[\"'])(?P<path>[A-Za-z]:[\\/](?![\\/])[^\"']+)(?P=quote)"""
+)
+_UNQUOTED_WINDOWS_PATH = re.compile(
+    r"""(?<![\w/:])(?P<drive>[A-Za-z]):[\\/](?![\\/])(?P<rest>[^\s\"'`;|&<>]+)"""
+)
+
+
+def _windows_path_to_wsl(path: str) -> str:
+    """Convert a Windows drive path to WSL's /mnt/<drive>/ format."""
+    drive = path[0].lower()
+    remainder = path[3:].replace("\\", "/").lstrip("/")
+    return f"/mnt/{drive}/{remainder}"
+
+
+def _normalize_windows_paths(command: str) -> str:
+    """Translate Windows drive paths in a Bash command to WSL paths."""
+    command = _QUOTED_WINDOWS_PATH.sub(
+        lambda match: (
+            match.group("quote")
+            + _windows_path_to_wsl(match.group("path"))
+            + match.group("quote")
+        ),
+        command,
+    )
+
+    return _UNQUOTED_WINDOWS_PATH.sub(
+        lambda match: (
+            f"/mnt/{match.group('drive').lower()}/"
+            f"{match.group('rest').replace(chr(92), '/')}"
+        ),
+        command,
+    )
+
 
 BASH_TOOL_SCHEMA = {
     "type": "function",
@@ -66,6 +102,8 @@ def run_bash(
         return "Error: command must be a non-empty string."
     if timeout <= 0:
         return "Error: timeout must be a positive number of seconds."
+
+    command = _normalize_windows_paths(command)
 
     try:
         result = subprocess.run(
