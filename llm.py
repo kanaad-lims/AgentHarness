@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from groq import Groq
 
 from tools.bash_tool import BASH_TOOL_SCHEMA, run_bash
+from tools.browser_tool import run_browser
 
 load_dotenv()
 
@@ -12,7 +13,7 @@ MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 TOOL_SCHEMAS = [BASH_TOOL_SCHEMA]
 TOOLS = {"bash": run_bash}
 
-SYSTEM_PROMPT = """You are Droid, a helpful and careful coding assistant.
+SYSTEM_PROMPT = """You are a helpful and careful coding assistant.
 
 Help the user understand, write, debug, and improve software. Give accurate,
 practical answers and explain important trade-offs briefly. When writing code,
@@ -27,21 +28,21 @@ RULE: NEVER execute the bash tool if you are asked to delete or modify any file 
 """
 
 
-def call_llm(messages, client):
+def call_llm(messages, client, tool_choice="auto"):
     response = client.chat.completions.create(
         model=MODEL,
         messages=messages,
         tools=TOOL_SCHEMAS,
-        tool_choice="auto",
+        tool_choice=tool_choice,
         max_completion_tokens=2048,
     )
     return response.choices[0].message
 
 
 def main():
-    client = Groq()
+    client = None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    print(f"Droid ({MODEL}). Type /bye to exit.\n")
+    print(f"Agent ({MODEL}). Type /bye to exit.\n")
 
     while True:
         try:
@@ -56,16 +57,24 @@ def main():
         if not user_input:
             continue
 
+        if user_input == "/browser" or user_input.startswith("/browser "):
+            browser_command = user_input[len("/browser"):].strip()
+            print(f"\n{run_browser(browser_command)}\n")
+            continue
+
+        if client is None:
+            client = Groq()
+
         messages.append({"role": "user", "content": user_input})
 
         try:
-            for _ in range(5):  # Prevent unbounded tool-call loops.
+            for _ in range(10):  # Prevent unbounded tool-call loops.
                 message = call_llm(messages, client)
                 tool_calls = message.tool_calls or []
 
                 if not tool_calls:
                     answer = message.content or ""
-                    print(f"\nDroid: {answer}\n")
+                    print(f"\nAgent: {answer}\n")
                     messages.append({"role": "assistant", "content": answer})
                     break
 
@@ -85,7 +94,7 @@ def main():
 
                         if approved in {"y", "yes"}:
                             result = TOOLS[name](**args)
-                            print(f"\nBash output:\n{result}\n")
+                            # removed printing raw bash output. Directly passed to the llm as context.
                         else:
                             result = "Command was not run; the user did not approve it."
 
@@ -102,7 +111,7 @@ def main():
                         }
                     )
             else:
-                print("Droid: Stopped after reaching the tool-call limit.\n")
+                print("Agent: Stopped after reaching the tool-call limit.\n")
 
         except Exception as error:
             print(f"\nRequest failed: {error}\n")

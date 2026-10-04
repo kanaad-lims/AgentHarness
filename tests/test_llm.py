@@ -48,7 +48,7 @@ def test_chat_sends_history_and_prints_reply(monkeypatch, capsys):
     ]
 
 
-def test_bash_tool_result_is_shown_and_sent_back_to_model(monkeypatch, capsys):
+def test_bash_tool_result_is_sent_back_without_printing_raw_output(monkeypatch, capsys):
     requests = []
     tool_call = SimpleNamespace(
         id="call-1",
@@ -92,8 +92,8 @@ def test_bash_tool_result_is_shown_and_sent_back_to_model(monkeypatch, capsys):
     llm.main()
 
     output = capsys.readouterr().out
-    assert "Bash output:" in output
-    assert "/work/project" in output
+    assert "Bash output:" not in output
+    assert "/work/project" not in output
     assert "You are in the project directory." in output
     assert len(requests) == 2
     assert requests[1]["messages"][-1] == {
@@ -102,3 +102,24 @@ def test_bash_tool_result_is_shown_and_sent_back_to_model(monkeypatch, capsys):
         "name": "bash",
         "content": "Exit code: 0\n/work/project",
     }
+
+
+def test_browser_command_runs_without_initializing_groq(monkeypatch, capsys):
+    calls = []
+
+    def unexpected_groq_call():
+        raise AssertionError("Browser commands should not initialize the LLM client")
+
+    answers = iter(["/browser search leo messi", "/exit"])
+    monkeypatch.setattr(llm, "Groq", unexpected_groq_call)
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    monkeypatch.setattr(
+        llm,
+        "run_browser",
+        lambda command: calls.append(command) or "Search results",
+    )
+
+    llm.main()
+
+    assert calls == ["search leo messi"]
+    assert "Search results" in capsys.readouterr().out
