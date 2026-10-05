@@ -1,6 +1,5 @@
 arxiv
 groq
-langchain-groq
 langgraph
 playwright
 python-dotenv

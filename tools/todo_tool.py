@@ -1,6 +1,5 @@
 """In-memory planning/todo tool for the current agent session."""
 
-import json
 from typing import Any
 
 
@@ -74,4 +73,5 @@ def write_todos(todos: list[dict[str, Any]]) -> str:
         return "Error: keep exactly one task in_progress while tasks remain."
 
     _TODOS[:] = updated
-    return f"<todos>{json.dumps(get_todos(), ensure_ascii=False)}</todos>"
+    remaining = sum(todo["status"] != "completed" for todo in updated)
+    return f"Plan saved: {len(updated)} tasks, {remaining} remaining."

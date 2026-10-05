@@ -1,7 +1,7 @@
 import arxiv
 
 
-QUERY = "Give papers on reinforcement learning in 2026"
+QUERY = "Recursive Harness Self-Improvement for Frontier Reasoning Data Synthesis"
 
 search = arxiv.Search(
     query=QUERY,

@@ -3,7 +3,7 @@ import json
 from tools import todo_tool
 
 
-def test_write_todos_replaces_plan_and_returns_todos_context(monkeypatch):
+def test_write_todos_replaces_plan_and_returns_short_ack(monkeypatch):
     monkeypatch.setattr(todo_tool, "_TODOS", [])
     todos = [
         {"task": "Inspect project", "status": "completed"},
@@ -14,7 +14,7 @@ def test_write_todos_replaces_plan_and_returns_todos_context(monkeypatch):
     result = todo_tool.write_todos(todos)
 
     assert todo_tool.get_todos() == todos
-    assert result == f"<todos>{json.dumps(todos, ensure_ascii=False)}</todos>"
+    assert result == "Plan saved: 3 tasks, 2 remaining."
 
 
 def test_write_todos_rejects_multiple_in_progress_tasks(monkeypatch):

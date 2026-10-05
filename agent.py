@@ -1,232 +1,372 @@
-"""LangGraph-based orchestration loop for the Droid coding assistant."""
+"""LangGraph agent loop reusing the pure-Python tool implementation."""
 
 import json
+import operator
 import os
 import time
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, TypedDict
 
-from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import StructuredTool, tool
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.message import add_messages
-from pydantic import BaseModel, Field
 
-from llm import DEBUG_TOKEN_USAGE, MODEL, SYSTEM_PROMPT
-from tools.arxiv_search_tool import arxiv_search as search_arxiv
-from tools.bash_tool import run_bash
+from llm import DEBUG_TOKEN_USAGE, MODEL, call_llm, create_client
+from tools.arxiv_search_tool import ARXIV_SEARCH_TOOL_SCHEMA, arxiv_search
+from tools.bash_tool import BASH_TOOL_SCHEMA, run_bash
 from tools.browser_tool import run_browser
-from tools.todo_tool import get_todos, write_todos
-
-load_dotenv()
+from tools.todo_tool import TODO_TOOL_SCHEMA, get_todos, write_todos
 
 MAX_MODEL_CALLS_PER_TURN = 8
 MAX_TOOL_CALLS_PER_TURN = 6
-MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", "800"))
+MAX_ARXIV_CALLS_PER_TURN = 3
+MAX_ARXIV_RESULTS_PER_CALL = 5
+MAX_TOOL_RESULT_CHARS = 5000
+MAX_SAME_CALL_ATTEMPTS = 3
+ARXIV_ABSTRACT_CHARS = int(os.getenv("ARXIV_ABSTRACT_CHARS", "300"))
+ARXIV_FORMAT_MAX_CHARS = int(os.getenv("ARXIV_FORMAT_MAX_CHARS", "1500"))
+
+SYSTEM_PROMPT = """You are a helpful and careful coding assistant.
+
+Help the user understand, write, debug, and improve software. Give accurate,
+practical answers and explain important trade-offs briefly. When writing code,
+provide complete, runnable examples when appropriate, use clear names, and
+follow the language and conventions of the user's project. Do not invent files,
+APIs, test results, or actions you have not performed. Ask a concise clarifying
+question when essential requirements are missing; otherwise state reasonable
+assumptions and proceed. Point out security, data-loss, or compatibility risks
+before recommending risky changes. Keep responses focused on the user's request.
+Use arxiv_search for recent arXiv papers or research topics. Use write_todos only
+for multi-step tasks needing 2 or more tool actions in this turn; skip planning
+for single tool calls, including retries. When planning, send the complete list
+on each update and keep exactly one unfinished task in_progress.
+RULE: NEVER execute the bash tool if asked to delete or modify any file.
+RULE: Keep answers focused and under 700 tokens where practical.
+"""
+
+TOOL_SCHEMAS = [BASH_TOOL_SCHEMA, ARXIV_SEARCH_TOOL_SCHEMA, TODO_TOOL_SCHEMA]
+
+
+def _shorten_at_word(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + " ...[truncated]"
+
+
+def _format_arxiv_results(results) -> str:
+    """Format raw arXiv results as compact valid text for the model."""
+    if isinstance(results, dict):
+        if "error" in results:
+            return f"ArXiv error: {results['error']}"
+        return f"ArXiv result: {json.dumps(results, ensure_ascii=False)[:500]}"
+    if not results:
+        return "No papers found for this query."
+    lines = [f"ArXiv results ({len(results)} papers, abstracts shortened):"]
+    for index, paper in enumerate(results, start=1):
+        title = (paper.get("title", "") or "(no title)").strip()
+        authors = (paper.get("authors", "") or "").strip()
+        parts = [part.strip() for part in authors.split(",") if part.strip()]
+        if len(parts) > 3:
+            authors = ", ".join(parts[:3]) + " et al."
+        else:
+            authors = ", ".join(parts) or "unknown"
+        published = paper.get("published", "") or ""
+        url = paper.get("url", "") or ""
+        abstract = _shorten_at_word(paper.get("summary", "") or "", ARXIV_ABSTRACT_CHARS)
+        lines.append(
+            f"{index}. {title} | Authors: {authors} | Published: {published} | "
+            f"URL: {url} | Abstract: {abstract}"
+        )
+    text = "\n".join(lines)
+    if len(text) > ARXIV_FORMAT_MAX_CHARS:
+        text = text[:ARXIV_FORMAT_MAX_CHARS].rsplit(" ", 1)[0] + "\n...[arXiv results truncated]"
+    return text
+
+
+def _search_arxiv(**arguments):
+    """Bound arXiv result count and return compact text for the model."""
+    requested = arguments.get("max_results", 5)
+    if not isinstance(requested, int) or isinstance(requested, bool):
+        requested = 5
+    arguments["max_results"] = min(max(requested, 1), MAX_ARXIV_RESULTS_PER_CALL)
+    return _format_arxiv_results(arxiv_search(**arguments))
+
+
+TOOLS = {
+    "bash": run_bash,
+    "arxiv_search": _search_arxiv,
+    "write_todos": write_todos,
+}
 
 
 class AgentState(TypedDict):
-    messages: Annotated[list[AnyMessage], add_messages]
+    messages: Annotated[list[dict], operator.add]
     model_calls: int
     tool_calls: int
+    arxiv_calls: int
+    seen_keys: Annotated[list[str], operator.add]
+    attempts: dict
+    pending: list
 
 
-class BashArgs(BaseModel):
-    command: str = Field(description="Bash command to run in the project directory.")
-
-
-class ArxivSearchArgs(BaseModel):
-    query: str = Field(description="Research topic or arXiv query.")
-    max_results: int = Field(default=5, ge=1, le=10)
-
-
-class TodoEntry(BaseModel):
-    task: str = Field(description="A concise task in the plan.")
-    status: Literal["pending", "in_progress", "completed"]
-
-
-class WriteTodosArgs(BaseModel):
-    todos: list[TodoEntry]
-
-
-@tool("bash", args_schema=BashArgs)
-def bash_tool(command: str) -> str:
-    """Run a Bash command. Commands execute on the host and are not sandboxed."""
-    print(f"\nBash command requested:\n{command}")
-    approval = input("Run this command? [y/N]: ").strip().lower()
-    if approval not in {"y", "yes"}:
-        return "Command was not run; the user did not approve it."
-    return run_bash(command)
-
-
-@tool("arxiv_search", args_schema=ArxivSearchArgs)
-def arxiv_search_tool(query: str, max_results: int = 5) -> str:
-    """Find the newest arXiv papers matching a topic and return their metadata."""
-    result = search_arxiv(query=query, max_results=max_results)
-    return json.dumps(result, ensure_ascii=False)
-
-
-@tool("write_todos", args_schema=WriteTodosArgs)
-def write_todos_tool(todos: list[TodoEntry]) -> str:
-    """Create or replace the complete plan for the current task."""
-    normalized = [
-        todo.model_dump() if isinstance(todo, BaseModel) else todo
-        for todo in todos
-    ]
-    return write_todos(normalized)
-
-
-TOOLS: list[StructuredTool] = [bash_tool, arxiv_search_tool, write_todos_tool]
-TOOLS_BY_NAME = {registered_tool.name: registered_tool for registered_tool in TOOLS}
+def _is_tool_failure(name: str, result: str) -> bool:
+    """Transient execution failures may be retried; successes must reformulate."""
+    if not isinstance(result, str):
+        return False
+    if result.startswith("Error:") or result.startswith("Tool error"):
+        return True
+    stripped = result.strip()
+    if stripped.startswith("{") and '"error"' in stripped:
+        return True
+    return False
 
 
 def _approx_tokens(text: str) -> int:
-    """Rough character-based estimate; exact tokenization is provider-specific."""
     return (len(text) + 3) // 4
 
 
-def _render_todos() -> str:
-    return (
-        "Current plan (authoritative): <todos>"
-        f"{json.dumps(get_todos(), ensure_ascii=False)}"
-        "</todos>"
-    )
+def _tool_call_fields(tool_call) -> tuple:
+    """Return (call_id, name, arguments_json_string) for object or dict calls."""
+    if hasattr(tool_call, "function"):
+        function = tool_call.function
+        if isinstance(function, dict):
+            name = function.get("name", "")
+            args_text = function.get("arguments", "{}")
+        else:
+            name = getattr(function, "name", "")
+            args_text = getattr(function, "arguments", "{}")
+        call_id = getattr(tool_call, "id", None)
+        if not isinstance(args_text, str):
+            args_text = json.dumps(args_text, ensure_ascii=False, default=str)
+        return call_id, name, args_text or "{}"
+    if isinstance(tool_call, dict):
+        function = tool_call.get("function", {})
+        if isinstance(function, dict):
+            return (
+                tool_call.get("id"),
+                function.get("name", ""),
+                function.get("arguments", "{}") or "{}",
+            )
+        return (
+            tool_call.get("id"),
+            tool_call.get("name", ""),
+            json.dumps(tool_call.get("args", {}), ensure_ascii=False, default=str),
+        )
+    return None, "", "{}"
 
 
-def build_agent(model=None):
-    """Build and compile the LangGraph agent; model can be injected for tests."""
-    if model is None:
-        from langchain_groq import ChatGroq
+def _tool_result(tool_call) -> tuple[str, str, dict]:
+    """Validate and execute one model-requested tool call."""
+    _, name, args_text = _tool_call_fields(tool_call)
+    try:
+        arguments = json.loads(args_text or "{}")
+        if not isinstance(arguments, dict):
+            return name, "Error: tool arguments must be a JSON object.", {}
+    except (TypeError, json.JSONDecodeError) as error:
+        return name, f"Error: invalid arguments for {name}: {error}", {}
 
-        model = ChatGroq(
-            model=MODEL,
-            temperature=0,
-            max_tokens=MAX_COMPLETION_TOKENS,
+    if DEBUG_TOKEN_USAGE:
+        args_text = json.dumps(arguments, ensure_ascii=False, default=str)
+        print(
+            f"[tool-debug] selected {name}; arguments "
+            f"{len(args_text):,} chars (~{_approx_tokens(args_text):,} tokens)"
         )
 
-    model_with_tools = model.bind_tools(TOOLS)
+    if name not in TOOLS:
+        return name, f"Error: unknown tool '{name}'.", arguments
+
+    if name == "bash":
+        print(f"\nBash command requested:\n{arguments.get('command', '')}")
+        approved = input("Run this command? [y/N]: ").strip().lower()
+        if approved not in {"y", "yes"}:
+            return name, "Command was not run; the user did not approve it.", arguments
+
+    started = time.perf_counter()
+    try:
+        result = TOOLS[name](**arguments)
+    except Exception as error:
+        result = f"Tool error ({name}): {type(error).__name__}: {error}"
+
+    if not isinstance(result, str):
+        result = json.dumps(result, ensure_ascii=False, default=str)
+    if len(result) > MAX_TOOL_RESULT_CHARS:
+        result = result[:MAX_TOOL_RESULT_CHARS] + "\n... tool result truncated to limit"
+    if DEBUG_TOKEN_USAGE:
+        print(
+            f"[tool-debug] {name} completed in {time.perf_counter() - started:.2f}s; "
+            f"result {len(result):,} chars (~{_approx_tokens(result):,} tokens)"
+        )
+    return name, result, arguments
+
+
+def _tool_result_metadata(tool_call) -> tuple[str, dict]:
+    """Read a tool call's name and arguments for limit/deduplication checks."""
+    _, name, args_text = _tool_call_fields(tool_call)
+    try:
+        arguments = json.loads(args_text or "{}")
+    except (TypeError, json.JSONDecodeError):
+        arguments = {}
+    return name, arguments if isinstance(arguments, dict) else {}
+
+
+def build_graph(client):
+    """Build the LangGraph workflow around the existing tool implementation."""
 
     def call_model(state: AgentState) -> dict:
-        messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            SystemMessage(content=_render_todos()),
-            *state["messages"],
-        ]
-
-        if DEBUG_TOKEN_USAGE:
-            serialized = "\n".join(
-                f"{message.type}: {message.content}" for message in messages
-            )
-            print(
-                f"[token-debug] LangGraph model call {state['model_calls'] + 1}; "
-                f"{len(serialized):,} chars (~{_approx_tokens(serialized):,} tokens)"
+        current_plan = get_todos()
+        request_messages = list(state["messages"])
+        if current_plan:
+            request_messages.append(
+                {
+                    "role": "system",
+                    "content": "Current plan (authoritative): <todos>"
+                    f"{json.dumps(current_plan, ensure_ascii=False)}</todos>",
+                },
             )
 
-        started = time.perf_counter()
-        response = model_with_tools.invoke(messages)
-        elapsed = time.perf_counter() - started
-
-        if DEBUG_TOKEN_USAGE:
-            usage = getattr(response, "usage_metadata", None) or {}
-            if usage:
-                print(
-                    "[token-debug] actual usage: "
-                    f"input={usage.get('input_tokens', 'n/a')}, "
-                    f"output={usage.get('output_tokens', 'n/a')}, "
-                    f"total={usage.get('total_tokens', 'n/a')}; latency={elapsed:.2f}s"
-                )
-            else:
-                print(f"[token-debug] usage unavailable; latency={elapsed:.2f}s")
-
+        response = call_llm(request_messages, client, TOOL_SCHEMAS)
+        requested_tools = list(getattr(response, "tool_calls", None) or [])
+        try:
+            dumped = response.model_dump(exclude_none=True)
+        except Exception:
+            dumped = {
+                "role": "assistant",
+                "content": getattr(response, "content", None) or "",
+            }
         return {
-            "messages": [response],
+            "messages": [dumped],
             "model_calls": state["model_calls"] + 1,
+            "pending": requested_tools,
         }
 
-    def dispatch_tools(state: AgentState) -> dict:
-        assistant_message = state["messages"][-1]
+    def run_tools(state: AgentState) -> dict:
+        pending = state.get("pending", []) or []
         tool_messages = []
-        calls_used = state["tool_calls"]
+        new_seen: list[str] = []
+        tool_calls_used = state.get("tool_calls", 0)
+        arxiv_used = state.get("arxiv_calls", 0)
+        successful = set(state.get("seen_keys", []))
+        attempts = dict(state.get("attempts", {}) or {})
 
-        for tool_call in assistant_message.tool_calls:
-            name = tool_call["name"]
-            args = tool_call["args"]
-            started = time.perf_counter()
-
-            if calls_used >= MAX_TOOL_CALLS_PER_TURN:
+        for tool_call in pending:
+            call_id, name, args_text = _tool_call_fields(tool_call)
+            try:
+                arguments = json.loads(args_text or "{}")
+            except (TypeError, json.JSONDecodeError):
+                arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            call_key = json.dumps(
+                [name, arguments], sort_keys=True, ensure_ascii=False
+            )
+            attempts_made = attempts.get(call_key, 0)
+            if tool_calls_used >= MAX_TOOL_CALLS_PER_TURN:
                 result = "Tool-call limit reached for this user request."
-            elif name not in TOOLS_BY_NAME:
-                result = f"Error: unknown tool '{name}'."
-            else:
-                calls_used += 1
-                if DEBUG_TOKEN_USAGE:
-                    args_text = json.dumps(args, ensure_ascii=False, default=str)
-                    print(
-                        f"[tool-debug] selected {name}; arguments "
-                        f"~{_approx_tokens(args_text):,} tokens"
-                    )
-                try:
-                    result = TOOLS_BY_NAME[name].invoke(args)
-                except Exception as error:
-                    result = f"Tool error ({name}): {error}"
-
-            if not isinstance(result, str):
-                result = json.dumps(result, ensure_ascii=False, default=str)
-
-            if DEBUG_TOKEN_USAGE:
-                print(
-                    f"[tool-debug] {name} completed in "
-                    f"{time.perf_counter() - started:.2f}s; "
-                    f"result {len(result):,} chars (~{_approx_tokens(result):,} tokens)"
+            elif call_key in successful:
+                result = "Duplicate tool call skipped; use the earlier result in this conversation."
+            elif attempts_made >= MAX_SAME_CALL_ATTEMPTS:
+                result = (
+                    "Retry limit reached for this exact tool call. "
+                    "Change the arguments or use results already in the conversation."
                 )
+            elif name == "arxiv_search" and arxiv_used >= MAX_ARXIV_CALLS_PER_TURN:
+                result = (
+                    "ArXiv search limit reached for this request. Use the arXiv results "
+                    "already in the conversation to answer."
+                )
+            else:
+                tool_calls_used += 1
+                attempts[call_key] = attempts_made + 1
+                if name == "arxiv_search":
+                    arxiv_used += 1
+                dispatched_name, result, _ = _tool_result(tool_call)
+                name = dispatched_name
+                if not _is_tool_failure(name, result):
+                    successful.add(call_key)
+                    new_seen.append(call_key)
 
             tool_messages.append(
-                ToolMessage(content=result, tool_call_id=tool_call["id"], name=name)
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": result,
+                }
             )
 
-        return {"messages": tool_messages, "tool_calls": calls_used}
-
-    def route_after_model(state: AgentState) -> str:
-        latest = state["messages"][-1]
-        if not getattr(latest, "tool_calls", None):
-            return "end"
-        if state["model_calls"] >= MAX_MODEL_CALLS_PER_TURN:
-            return "limit"
-        return "tools"
+        return {
+            "messages": tool_messages,
+            "tool_calls": tool_calls_used,
+            "arxiv_calls": arxiv_used,
+            "seen_keys": new_seen,
+            "attempts": attempts,
+            "pending": [],
+        }
 
     def stop_at_limit(_state: AgentState) -> dict:
         return {
             "messages": [
-                AIMessage(
-                    content=(
+                {
+                    "role": "assistant",
+                    "content": (
                         "I reached the model-call limit for this request. "
                         "Please ask me to continue if more work is needed."
-                    )
-                )
-            ]
+                    ),
+                }
+            ],
+            "pending": [],
         }
+
+    def route_after_model(state: AgentState) -> str:
+        if not (state.get("pending", []) or []):
+            return "end"
+        return "tools"
+
+    def route_after_tools(state: AgentState) -> str:
+        if state["model_calls"] >= MAX_MODEL_CALLS_PER_TURN:
+            return "limit"
+        return "model"
 
     graph = StateGraph(AgentState)
     graph.add_node("model", call_model)
-    graph.add_node("tools", dispatch_tools)
+    graph.add_node("tools", run_tools)
     graph.add_node("limit", stop_at_limit)
     graph.add_edge(START, "model")
     graph.add_conditional_edges(
-        "model",
-        route_after_model,
-        {"tools": "tools", "limit": "limit", "end": END},
+        "model", route_after_model, {"tools": "tools", "end": END}
     )
-    graph.add_edge("tools", "model")
+    graph.add_conditional_edges(
+        "tools", route_after_tools, {"model": "model", "limit": "limit"}
+    )
     graph.add_edge("limit", END)
     return graph.compile()
 
 
+def run_turn(messages: list[dict], client) -> str:
+    """Run one user turn through the LangGraph workflow."""
+    app = build_graph(client)
+    result = app.invoke(
+        {
+            "messages": list(messages),
+            "model_calls": 0,
+            "tool_calls": 0,
+            "arxiv_calls": 0,
+            "seen_keys": [],
+            "attempts": {},
+            "pending": [],
+        },
+        config={"recursion_limit": 2 * MAX_MODEL_CALLS_PER_TURN + 10},
+    )
+    messages[:] = result["messages"]
+    for message in reversed(result["messages"]):
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            return message.get("content", "") or ""
+    return ""
+
+
 def main() -> None:
-    """Run an interactive LangGraph-backed chat session."""
-    load_dotenv()
-    app = None
-    conversation: list[AnyMessage] = []
-    print(f"LangGraph Agent ({MODEL}). Type /bye to exit.\n")
+    """Start the interactive agent."""
+    client = None
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    print(f"Agent ({MODEL}). Type /bye to exit.\n")
 
     while True:
         try:
@@ -242,27 +382,15 @@ def main() -> None:
             continue
 
         if user_input == "/browser" or user_input.startswith("/browser "):
-            browser_command = user_input[len("/browser"):].strip()
-            print(f"\n{run_browser(browser_command)}\n")
+            command = user_input[len("/browser"):].strip()
+            print(f"\n{run_browser(command)}\n")
             continue
 
-        if app is None:
-            app = build_agent()
-
-        conversation.append(HumanMessage(content=user_input))
+        if client is None:
+            client = create_client()
+        messages.append({"role": "user", "content": user_input})
         try:
-            result = app.invoke(
-                {"messages": conversation, "model_calls": 0, "tool_calls": 0},
-                config={"recursion_limit": 20},
-            )
-            conversation = result["messages"]
-            final_message = conversation[-1]
-            answer = final_message.content
-            if isinstance(answer, list):
-                answer = "\n".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part)
-                    for part in answer
-                )
+            answer = run_turn(messages, client)
             print(f"\nAgent: {answer}\n")
         except Exception as error:
             print(f"\nRequest failed: {error}\n")
