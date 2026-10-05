@@ -1,4 +1,4 @@
-"""Compact arXiv formatting for model consumption."""
+"""Compact arXiv formatting for model consumption"""
 
 import json
 import os
