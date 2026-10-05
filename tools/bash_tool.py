@@ -4,11 +4,15 @@ This executes commands on the host machine; it is not a sandbox. Only invoke
 it through the agent's tool-call and permission flow.
 """
 
+import os
 import re
 import subprocess
 
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_OUTPUT_CHARACTERS = 20_000
+HEAD_CHARS = int(os.getenv("BASH_HEAD_CHARS", "8000"))
+TAIL_CHARS = int(os.getenv("BASH_TAIL_CHARS", "8000"))
+STDERR_TAIL_CHARS = int(os.getenv("BASH_STDERR_TAIL_CHARS", "4000"))
 
 _QUOTED_WINDOWS_PATH = re.compile(
     r"""(?P<quote>[\"'])(?P<path>[A-Za-z]:[\\/](?![\\/])[^\"']+)(?P=quote)"""
@@ -76,32 +80,50 @@ def _as_text(value: str | bytes | None) -> str:
     return value
 
 
-def _format_output(stdout: str | bytes | None, stderr: str | bytes | None) -> str:
-    output = _as_text(stdout)
-    error_output = _as_text(stderr)
-    if error_output:
-        output += ("\n" if output else "") + error_output
+def _split_head_tail(text: str, head: int, tail: int) -> tuple[str, str, int]:
+    """Split text into head/tail, returning (head, tail, omitted_chars)."""
+    if len(text) <= head + tail:
+        return text, "", 0
+    return text[:head], text[-tail:], len(text) - head - tail
 
-    if len(output) > MAX_OUTPUT_CHARACTERS:
-        output = output[:MAX_OUTPUT_CHARACTERS] + "\n... output truncated"
-    return output or "(no output)"
+
+def _format_output(stdout: str | bytes | None, stderr: str | bytes | None) -> dict:
+    """Return structured head/tail output so tails are never silently dropped."""
+    stdout_text = _as_text(stdout)
+    stderr_text = _as_text(stderr)
+    stdout_head, stdout_tail, omitted_stdout = _split_head_tail(
+        stdout_text, HEAD_CHARS, TAIL_CHARS
+    )
+    if len(stderr_text) <= STDERR_TAIL_CHARS:
+        stderr_tail, omitted_stderr = stderr_text, 0
+    else:
+        stderr_tail, omitted_stderr = stderr_text[-STDERR_TAIL_CHARS:], (
+            len(stderr_text) - STDERR_TAIL_CHARS
+        )
+    omitted = omitted_stdout + omitted_stderr
+    return {
+        "stdout_head": stdout_head,
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
+        "omitted_chars": omitted,
+        "truncated": omitted > 0,
+    }
 
 
 def run_bash(
     command: str,
     *,
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
-) -> str:
-    """Run ``command`` with Bash and return its exit code and output.
+) -> dict:
+    """Run ``command`` with Bash and return structured output.
 
-    Bash must be installed and available on PATH. This function does not
-    sandbox commands, so callers should apply their permission policy before
-    dispatching a model-requested tool call.
+    This function does not sandbox commands, so callers should apply their
+    permission policy before dispatching a model-requested tool call.
     """
     if not isinstance(command, str) or not command.strip():
-        return "Error: command must be a non-empty string."
+        return {"error": "Error: command must be a non-empty string."}
     if timeout <= 0:
-        return "Error: timeout must be a positive number of seconds."
+        return {"error": "Error: timeout must be a positive number of seconds."}
 
     command = _normalize_windows_paths(command)
 
@@ -117,12 +139,25 @@ def run_bash(
             check=False,
         )
     except FileNotFoundError:
-        return "Error: Bash was not found on PATH. Install Bash or configure its path."
+        return {"error": "Error: Bash was not found on PATH. Install Bash or configure its path."}
     except subprocess.TimeoutExpired as error:
         output = _format_output(error.stdout, error.stderr)
-        return f"Timed out after {timeout} seconds.\n{output}"
+        return {
+            "command": command,
+            "exit_code": None,
+            "timed_out": True,
+            "timeout_seconds": timeout,
+            "cwd": os.getcwd(),
+            **output,
+        }
     except OSError as error:
-        return f"Error launching Bash: {error}"
+        return {"error": f"Error launching Bash: {error}"}
 
     output = _format_output(result.stdout, result.stderr)
-    return f"Exit code: {result.returncode}\n{output}"
+    return {
+        "command": command,
+        "exit_code": result.returncode,
+        "timed_out": False,
+        "cwd": os.getcwd(),
+        **output,
+    }

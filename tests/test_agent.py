@@ -152,6 +152,8 @@ def test_failed_tool_call_may_retry_identical_arguments(monkeypatch):
 
 
 def test_format_arxiv_results_shortens_abstracts_and_keeps_links():
+    from presenters import arxiv as arxiv_presenter
+
     papers = [
         {
             "title": "Full Title One",
@@ -163,10 +165,10 @@ def test_format_arxiv_results_shortens_abstracts_and_keeps_links():
         }
     ]
 
-    text = agent._format_arxiv_results(papers)
+    text = arxiv_presenter.format_arxiv_results(papers)
 
     assert "Full Title One" in text
     assert "http://arxiv.org/abs/0001" in text
     assert "et al." in text
     assert "[truncated]" in text
-    assert len(text) <= agent.ARXIV_FORMAT_MAX_CHARS + 100
+    assert len(text) <= arxiv_presenter.ARXIV_FORMAT_MAX_CHARS + 100

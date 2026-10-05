@@ -2,13 +2,14 @@
 
 import json
 import operator
-import os
 import time
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from llm import DEBUG_TOKEN_USAGE, MODEL, call_llm, create_client
+from presenters.arxiv import format_arxiv_results
+from presenters.bash import format_bash_result
 from tools.arxiv_search_tool import ARXIV_SEARCH_TOOL_SCHEMA, arxiv_search
 from tools.bash_tool import BASH_TOOL_SCHEMA, run_bash
 from tools.browser_tool import run_browser
@@ -20,8 +21,6 @@ MAX_ARXIV_CALLS_PER_TURN = 3
 MAX_ARXIV_RESULTS_PER_CALL = 5
 MAX_TOOL_RESULT_CHARS = 5000
 MAX_SAME_CALL_ATTEMPTS = 3
-ARXIV_ABSTRACT_CHARS = int(os.getenv("ARXIV_ABSTRACT_CHARS", "300"))
-ARXIV_FORMAT_MAX_CHARS = int(os.getenv("ARXIV_FORMAT_MAX_CHARS", "1500"))
 
 SYSTEM_PROMPT = """You are a helpful and careful coding assistant.
 
@@ -44,50 +43,13 @@ RULE: Keep answers focused and under 700 tokens where practical.
 TOOL_SCHEMAS = [BASH_TOOL_SCHEMA, ARXIV_SEARCH_TOOL_SCHEMA, TODO_TOOL_SCHEMA]
 
 
-def _shorten_at_word(text: str, limit: int) -> str:
-    text = " ".join(text.split())
-    if len(text) <= limit:
-        return text
-    return text[:limit].rsplit(" ", 1)[0] + " ...[truncated]"
-
-
-def _format_arxiv_results(results) -> str:
-    """Format raw arXiv results as compact valid text for the model."""
-    if isinstance(results, dict):
-        if "error" in results:
-            return f"ArXiv error: {results['error']}"
-        return f"ArXiv result: {json.dumps(results, ensure_ascii=False)[:500]}"
-    if not results:
-        return "No papers found for this query."
-    lines = [f"ArXiv results ({len(results)} papers, abstracts shortened):"]
-    for index, paper in enumerate(results, start=1):
-        title = (paper.get("title", "") or "(no title)").strip()
-        authors = (paper.get("authors", "") or "").strip()
-        parts = [part.strip() for part in authors.split(",") if part.strip()]
-        if len(parts) > 3:
-            authors = ", ".join(parts[:3]) + " et al."
-        else:
-            authors = ", ".join(parts) or "unknown"
-        published = paper.get("published", "") or ""
-        url = paper.get("url", "") or ""
-        abstract = _shorten_at_word(paper.get("summary", "") or "", ARXIV_ABSTRACT_CHARS)
-        lines.append(
-            f"{index}. {title} | Authors: {authors} | Published: {published} | "
-            f"URL: {url} | Abstract: {abstract}"
-        )
-    text = "\n".join(lines)
-    if len(text) > ARXIV_FORMAT_MAX_CHARS:
-        text = text[:ARXIV_FORMAT_MAX_CHARS].rsplit(" ", 1)[0] + "\n...[arXiv results truncated]"
-    return text
-
-
 def _search_arxiv(**arguments):
     """Bound arXiv result count and return compact text for the model."""
     requested = arguments.get("max_results", 5)
     if not isinstance(requested, int) or isinstance(requested, bool):
         requested = 5
     arguments["max_results"] = min(max(requested, 1), MAX_ARXIV_RESULTS_PER_CALL)
-    return _format_arxiv_results(arxiv_search(**arguments))
+    return format_arxiv_results(arxiv_search(**arguments))
 
 
 TOOLS = {
@@ -111,7 +73,12 @@ def _is_tool_failure(name: str, result: str) -> bool:
     """Transient execution failures may be retried; successes must reformulate."""
     if not isinstance(result, str):
         return False
-    if result.startswith("Error:") or result.startswith("Tool error"):
+    if (
+        result.startswith("Error:")
+        or result.startswith("Tool error")
+        or result.startswith("Timed out after")
+        or result.startswith("ArXiv error:")
+    ):
         return True
     stripped = result.strip()
     if stripped.startswith("{") and '"error"' in stripped:
@@ -185,6 +152,8 @@ def _tool_result(tool_call) -> tuple[str, str, dict]:
     except Exception as error:
         result = f"Tool error ({name}): {type(error).__name__}: {error}"
 
+    if name == "bash" and isinstance(result, dict):
+        result = format_bash_result(result)
     if not isinstance(result, str):
         result = json.dumps(result, ensure_ascii=False, default=str)
     if len(result) > MAX_TOOL_RESULT_CHARS:
