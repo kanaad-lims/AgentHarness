@@ -172,3 +172,21 @@ def test_format_arxiv_results_shortens_abstracts_and_keeps_links():
     assert "et al." in text
     assert "[truncated]" in text
     assert len(text) <= arxiv_presenter.ARXIV_FORMAT_MAX_CHARS + 100
+
+
+def test_format_arxiv_single_paper_returns_full_abstract():
+    from presenters import arxiv as arxiv_presenter
+
+    paper = {
+        "title": "T",
+        "authors": "A",
+        "published": "2026-10-01",
+        "summary": "word " * 500,
+        "url": "http://arxiv.org/abs/0001",
+        "pdf_url": "",
+    }
+
+    text = arxiv_presenter.format_arxiv_results([paper])
+
+    assert "full abstract" in text
+    assert "[truncated]" not in text

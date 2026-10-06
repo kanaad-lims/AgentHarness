@@ -22,6 +22,18 @@ def format_arxiv_results(results) -> str:
         return f"ArXiv result: {json.dumps(results, ensure_ascii=False)[:500]}"
     if not results:
         return "No papers found for this query."
+    if len(results) == 1:
+        paper = results[0]
+        title = (paper.get("title", "") or "(no title)").strip()
+        authors = (paper.get("authors", "") or "").strip() or "unknown"
+        published = paper.get("published", "") or ""
+        url = paper.get("url", "") or ""
+        abstract = " ".join((paper.get("summary", "") or "").split())
+        return (
+            f"ArXiv result (1 paper, full abstract):\n"
+            f"Title: {title}\nAuthors: {authors}\nPublished: {published}\n"
+            f"URL: {url}\nAbstract: {abstract or '(no abstract)'}"
+        )
     lines = [f"ArXiv results ({len(results)} papers, abstracts shortened):"]
     for index, paper in enumerate(results, start=1):
         title = (paper.get("title", "") or "(no title)").strip()

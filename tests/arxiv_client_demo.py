@@ -1,12 +1,12 @@
 import arxiv
 
 
-QUERY = "Recursive Harness Self-Improvement for Frontier Reasoning Data Synthesis"
+QUERY = "Give list of papers on robotics"
 
 search = arxiv.Search(
     query=QUERY,
     max_results=5,
-    sort_by=arxiv.SortCriterion.SubmittedDate,
+    sort_by=arxiv.SortCriterion.Relevance,
     sort_order=arxiv.SortOrder.Descending,
 )
 

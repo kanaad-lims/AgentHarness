@@ -31,7 +31,10 @@ def test_call_llm_uses_native_groq_sdk_and_returns_assistant_message(monkeypatch
     assert requests[0]["model"] == llm.MODEL
     assert requests[0]["tools"] == [{"type": "function", "function": {"name": "example"}}]
     assert requests[0]["tool_choice"] == "auto"
-    assert requests[0]["max_completion_tokens"] == llm.MAX_COMPLETION_TOKENS
+    if llm.MAX_COMPLETION_TOKENS is None:
+        assert "max_completion_tokens" not in requests[0]
+    else:
+        assert requests[0]["max_completion_tokens"] == llm.MAX_COMPLETION_TOKENS
     assert requests[0]["messages"] == [{"role": "user", "content": "Hi"}]
 
 

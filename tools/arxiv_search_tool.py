@@ -1,6 +1,5 @@
 import arxiv
 
-
 DEFAULT_MAX_RESULTS = 5
 MAX_RESULTS_LIMIT = 10
 

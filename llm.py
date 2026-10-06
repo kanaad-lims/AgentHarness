@@ -10,7 +10,8 @@ from groq import Groq
 load_dotenv()
 
 MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
-MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", "2048"))
+MAX_COMPLETION_TOKENS = os.getenv("MAX_COMPLETION_TOKENS")
+MAX_COMPLETION_TOKENS = int(MAX_COMPLETION_TOKENS) if MAX_COMPLETION_TOKENS else None
 DEBUG_TOKEN_USAGE = True
 
 
@@ -37,13 +38,15 @@ def call_llm(messages, client, tools, tool_choice="auto"):
 
     started = time.perf_counter()
     try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            tools=tools,
-            tool_choice=tool_choice,
-            max_completion_tokens=MAX_COMPLETION_TOKENS,
-        )
+        request_kwargs = {
+            "model": MODEL,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        if MAX_COMPLETION_TOKENS is not None:
+            request_kwargs["max_completion_tokens"] = MAX_COMPLETION_TOKENS
+        response = client.chat.completions.create(**request_kwargs)
     except Exception as error:
         if DEBUG_TOKEN_USAGE:
             print(
