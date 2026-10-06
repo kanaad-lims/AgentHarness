@@ -1,22 +1,40 @@
-"""Central policy values: loop caps, budgets, and enforcement flags."""
+"""Central policy values: loop caps, budgets, and enforcement flags.
 
-import os
+Values are defined in config.py (single source of truth) and re-exported
+here. Rule logic that interprets them lives with the enforcers for now and
+moves into this package as policies/checks.py next.
+"""
 
-MAX_MODEL_CALLS_PER_TURN = 8
-MAX_TOOL_CALLS_PER_TURN = 6
-MAX_ARXIV_CALLS_PER_TURN = 3
-MAX_ARXIV_RESULTS_PER_CALL = 10
-MAX_TOOL_RESULT_CHARS = 5000
-MAX_SAME_CALL_ATTEMPTS = 3
+from config import (
+    ARXIV_ABSTRACT_CHARS,
+    ARXIV_FORMAT_MAX_CHARS,
+    BASH_HEAD_CHARS,
+    BASH_RENDER_MAX_CHARS,
+    BASH_STDERR_TAIL_CHARS,
+    BASH_TAIL_CHARS,
+    MAX_ARXIV_CALLS_PER_TURN,
+    MAX_ARXIV_RESULTS_PER_CALL,
+    MAX_MODEL_CALLS_PER_TURN,
+    MAX_SAME_CALL_ATTEMPTS,
+    MAX_TOOL_CALLS_PER_TURN,
+    MAX_TOOL_RESULT_CHARS,
+    RECURSION_LIMIT,
+    REQUIRE_BASH_APPROVAL,
+)
 
-REQUIRE_BASH_APPROVAL = True
-
-ARXIV_ABSTRACT_CHARS = int(os.getenv("ARXIV_ABSTRACT_CHARS", "300"))
-ARXIV_FORMAT_MAX_CHARS = int(os.getenv("ARXIV_FORMAT_MAX_CHARS", "1500"))
-BASH_RENDER_MAX_CHARS = int(os.getenv("BASH_RENDER_MAX_CHARS", "2000"))
-
-BASH_HEAD_CHARS = int(os.getenv("BASH_HEAD_CHARS", "8000"))
-BASH_TAIL_CHARS = int(os.getenv("BASH_TAIL_CHARS", "8000"))
-BASH_STDERR_TAIL_CHARS = int(os.getenv("BASH_STDERR_TAIL_CHARS", "4000"))
-
-RECURSION_LIMIT = 2 * MAX_MODEL_CALLS_PER_TURN + 10
+__all__ = [
+    "ARXIV_ABSTRACT_CHARS",
+    "ARXIV_FORMAT_MAX_CHARS",
+    "BASH_HEAD_CHARS",
+    "BASH_RENDER_MAX_CHARS",
+    "BASH_STDERR_TAIL_CHARS",
+    "BASH_TAIL_CHARS",
+    "MAX_ARXIV_CALLS_PER_TURN",
+    "MAX_ARXIV_RESULTS_PER_CALL",
+    "MAX_MODEL_CALLS_PER_TURN",
+    "MAX_SAME_CALL_ATTEMPTS",
+    "MAX_TOOL_CALLS_PER_TURN",
+    "MAX_TOOL_RESULT_CHARS",
+    "RECURSION_LIMIT",
+    "REQUIRE_BASH_APPROVAL",
+]

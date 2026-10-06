@@ -1,7 +1,6 @@
 import arxiv
 
-DEFAULT_MAX_RESULTS = 5
-MAX_RESULTS_LIMIT = 10
+from config import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
 
 ARXIV_SEARCH_TOOL_SCHEMA = {
     "type": "function",

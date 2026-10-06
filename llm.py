@@ -1,18 +1,14 @@
 """Groq SDK setup and single-request model communication."""
 
 import json
-import os
 import time
 
 from dotenv import load_dotenv
 from groq import Groq
 
-load_dotenv()
+from config import DEBUG_TOKEN_USAGE, MAX_COMPLETION_TOKENS, MODEL
 
-MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
-MAX_COMPLETION_TOKENS = os.getenv("MAX_COMPLETION_TOKENS")
-MAX_COMPLETION_TOKENS = int(MAX_COMPLETION_TOKENS) if MAX_COMPLETION_TOKENS else None
-DEBUG_TOKEN_USAGE = True
+load_dotenv()
 
 
 def create_client() -> Groq:

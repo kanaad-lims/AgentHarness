@@ -8,11 +8,10 @@ import os
 import re
 import subprocess
 
+from config import DEFAULT_TIMEOUT_SECONDS
 from policies import BASH_HEAD_CHARS as HEAD_CHARS
 from policies import BASH_STDERR_TAIL_CHARS as STDERR_TAIL_CHARS
 from policies import BASH_TAIL_CHARS as TAIL_CHARS
-
-DEFAULT_TIMEOUT_SECONDS = 30
 
 _QUOTED_WINDOWS_PATH = re.compile(
     r"""(?P<quote>[\"'])(?P<path>[A-Za-z]:[\\/](?![\\/])[^\"']+)(?P=quote)"""

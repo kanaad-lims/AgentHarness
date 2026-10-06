@@ -10,7 +10,6 @@ from langgraph.graph import END, START, StateGraph
 from llm import DEBUG_TOKEN_USAGE, MODEL, call_llm, create_client
 from policies import (
     MAX_ARXIV_CALLS_PER_TURN,
-    MAX_ARXIV_RESULTS_PER_CALL,
     MAX_MODEL_CALLS_PER_TURN,
     MAX_SAME_CALL_ATTEMPTS,
     MAX_TOOL_CALLS_PER_TURN,
@@ -18,8 +17,6 @@ from policies import (
     RECURSION_LIMIT,
     REQUIRE_BASH_APPROVAL,
 )
-from presenters.arxiv import format_arxiv_results
-from presenters.bash import format_bash_result
 from prompts import SYSTEM_PROMPT
 from prompts.messages import (
     ARXIV_LIMIT_MESSAGE,
@@ -31,28 +28,9 @@ from prompts.messages import (
     TOOL_LIMIT_MESSAGE,
     plan_message,
 )
-from tools.arxiv_search_tool import ARXIV_SEARCH_TOOL_SCHEMA, arxiv_search
-from tools.bash_tool import BASH_TOOL_SCHEMA, run_bash
 from tools.browser_tool import run_browser
-from tools.todo_tool import TODO_TOOL_SCHEMA, get_todos, write_todos
-
-TOOL_SCHEMAS = [BASH_TOOL_SCHEMA, ARXIV_SEARCH_TOOL_SCHEMA, TODO_TOOL_SCHEMA]
-
-
-def _search_arxiv(**arguments):
-    """Bound arXiv result count and return compact text for the model."""
-    requested = arguments.get("max_results", 5)
-    if not isinstance(requested, int) or isinstance(requested, bool):
-        requested = 5
-    arguments["max_results"] = min(max(requested, 1), MAX_ARXIV_RESULTS_PER_CALL)
-    return format_arxiv_results(arxiv_search(**arguments))
-
-
-TOOLS = {
-    "bash": run_bash,
-    "arxiv_search": _search_arxiv,
-    "write_todos": write_todos,
-}
+from tools.registry import TOOL_SCHEMAS, TOOLS
+from tools.todo_tool import get_todos
 
 
 class AgentState(TypedDict):
@@ -116,7 +94,7 @@ def _tool_call_fields(tool_call) -> tuple:
     return None, "", "{}"
 
 
-def _tool_result(tool_call) -> tuple[str, str, dict]:
+def _execute_tool_call(tool_call) -> tuple[str, str, dict]:
     """Validate and execute one model-requested tool call."""
     _, name, args_text = _tool_call_fields(tool_call)
     try:
@@ -148,8 +126,6 @@ def _tool_result(tool_call) -> tuple[str, str, dict]:
     except Exception as error:
         result = f"Tool error ({name}): {type(error).__name__}: {error}"
 
-    if name == "bash" and isinstance(result, dict):
-        result = format_bash_result(result)
     if not isinstance(result, str):
         result = json.dumps(result, ensure_ascii=False, default=str)
     if len(result) > MAX_TOOL_RESULT_CHARS:
@@ -160,16 +136,6 @@ def _tool_result(tool_call) -> tuple[str, str, dict]:
             f"result {len(result):,} chars (~{_approx_tokens(result):,} tokens)"
         )
     return name, result, arguments
-
-
-def _tool_result_metadata(tool_call) -> tuple[str, dict]:
-    """Read a tool call's name and arguments for limit/deduplication checks."""
-    _, name, args_text = _tool_call_fields(tool_call)
-    try:
-        arguments = json.loads(args_text or "{}")
-    except (TypeError, json.JSONDecodeError):
-        arguments = {}
-    return name, arguments if isinstance(arguments, dict) else {}
 
 
 def build_graph(client):
@@ -230,7 +196,7 @@ def build_graph(client):
                 attempts[call_key] = attempts_made + 1
                 if name == "arxiv_search":
                     arxiv_used += 1
-                dispatched_name, result, _ = _tool_result(tool_call)
+                dispatched_name, result, _ = _execute_tool_call(tool_call)
                 name = dispatched_name
                 if not _is_tool_failure(name, result):
                     successful.add(call_key)
