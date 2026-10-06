@@ -1,8 +1,6 @@
 """Compact bash formatting for model consumption."""
 
-import os
-
-BASH_RENDER_MAX_CHARS = int(os.getenv("BASH_RENDER_MAX_CHARS", "2000"))
+from policies import BASH_RENDER_MAX_CHARS
 
 
 def format_bash_result(result: dict) -> str:

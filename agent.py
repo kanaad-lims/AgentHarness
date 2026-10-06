@@ -8,37 +8,33 @@ from typing import Annotated, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from llm import DEBUG_TOKEN_USAGE, MODEL, call_llm, create_client
+from policies import (
+    MAX_ARXIV_CALLS_PER_TURN,
+    MAX_ARXIV_RESULTS_PER_CALL,
+    MAX_MODEL_CALLS_PER_TURN,
+    MAX_SAME_CALL_ATTEMPTS,
+    MAX_TOOL_CALLS_PER_TURN,
+    MAX_TOOL_RESULT_CHARS,
+    RECURSION_LIMIT,
+    REQUIRE_BASH_APPROVAL,
+)
 from presenters.arxiv import format_arxiv_results
 from presenters.bash import format_bash_result
+from prompts import SYSTEM_PROMPT
+from prompts.messages import (
+    ARXIV_LIMIT_MESSAGE,
+    BASH_APPROVAL_PROMPT,
+    BASH_REQUEST_HEADER,
+    DUPLICATE_TOOL_MESSAGE,
+    MODEL_LIMIT_ANSWER,
+    RETRY_LIMIT_MESSAGE,
+    TOOL_LIMIT_MESSAGE,
+    plan_message,
+)
 from tools.arxiv_search_tool import ARXIV_SEARCH_TOOL_SCHEMA, arxiv_search
 from tools.bash_tool import BASH_TOOL_SCHEMA, run_bash
 from tools.browser_tool import run_browser
 from tools.todo_tool import TODO_TOOL_SCHEMA, get_todos, write_todos
-
-MAX_MODEL_CALLS_PER_TURN = 8
-MAX_TOOL_CALLS_PER_TURN = 6
-MAX_ARXIV_CALLS_PER_TURN = 3
-MAX_ARXIV_RESULTS_PER_CALL = 5
-MAX_TOOL_RESULT_CHARS = 5000
-MAX_SAME_CALL_ATTEMPTS = 3
-
-SYSTEM_PROMPT = """You are a helpful and careful coding assistant.
-
-Help the user understand, write, debug, and improve software. Give accurate,
-practical answers and explain important trade-offs briefly. When writing code,
-provide complete, runnable examples when appropriate, use clear names, and
-follow the language and conventions of the user's project. Do not invent files,
-APIs, test results, or actions you have not performed. Ask a concise clarifying
-question when essential requirements are missing; otherwise state reasonable
-assumptions and proceed. Point out security, data-loss, or compatibility risks
-before recommending risky changes. Keep responses focused on the user's request.
-Use arxiv_search for recent arXiv papers or research topics. Use write_todos only
-for multi-step tasks needing 2 or more tool actions in this turn; skip planning
-for single tool calls, including retries. When planning, send the complete list
-on each update and keep exactly one unfinished task in_progress.
-RULE: NEVER execute the bash tool if asked to delete or modify any file.
-RULE: Keep answers focused and under 700 tokens where practical.
-"""
 
 TOOL_SCHEMAS = [BASH_TOOL_SCHEMA, ARXIV_SEARCH_TOOL_SCHEMA, TODO_TOOL_SCHEMA]
 
@@ -140,9 +136,9 @@ def _tool_result(tool_call) -> tuple[str, str, dict]:
     if name not in TOOLS:
         return name, f"Error: unknown tool '{name}'.", arguments
 
-    if name == "bash":
-        print(f"\nBash command requested:\n{arguments.get('command', '')}")
-        approved = input("Run this command? [y/N]: ").strip().lower()
+    if name == "bash" and REQUIRE_BASH_APPROVAL:
+        print(f"\n{BASH_REQUEST_HEADER}\n{arguments.get('command', '')}")
+        approved = input(f"{BASH_APPROVAL_PROMPT}").strip().lower()
         if approved not in {"y", "yes"}:
             return name, "Command was not run; the user did not approve it.", arguments
 
@@ -183,13 +179,7 @@ def build_graph(client):
         current_plan = get_todos()
         request_messages = list(state["messages"])
         if current_plan:
-            request_messages.append(
-                {
-                    "role": "system",
-                    "content": "Current plan (authoritative): <todos>"
-                    f"{json.dumps(current_plan, ensure_ascii=False)}</todos>",
-                },
-            )
+            request_messages.append(plan_message(current_plan))
 
         response = call_llm(request_messages, client, TOOL_SCHEMAS)
         requested_tools = list(getattr(response, "tool_calls", None) or [])
@@ -228,19 +218,13 @@ def build_graph(client):
             )
             attempts_made = attempts.get(call_key, 0)
             if tool_calls_used >= MAX_TOOL_CALLS_PER_TURN:
-                result = "Tool-call limit reached for this user request."
+                result = TOOL_LIMIT_MESSAGE
             elif call_key in successful:
-                result = "Duplicate tool call skipped; use the earlier result in this conversation."
+                result = DUPLICATE_TOOL_MESSAGE
             elif attempts_made >= MAX_SAME_CALL_ATTEMPTS:
-                result = (
-                    "Retry limit reached for this exact tool call. "
-                    "Change the arguments or use results already in the conversation."
-                )
+                result = RETRY_LIMIT_MESSAGE
             elif name == "arxiv_search" and arxiv_used >= MAX_ARXIV_CALLS_PER_TURN:
-                result = (
-                    "ArXiv search limit reached for this request. Use the arXiv results "
-                    "already in the conversation to answer."
-                )
+                result = ARXIV_LIMIT_MESSAGE
             else:
                 tool_calls_used += 1
                 attempts[call_key] = attempts_made + 1
@@ -275,10 +259,7 @@ def build_graph(client):
             "messages": [
                 {
                     "role": "assistant",
-                    "content": (
-                        "I reached the model-call limit for this request. "
-                        "Please ask me to continue if more work is needed."
-                    ),
+                    "content": MODEL_LIMIT_ANSWER,
                 }
             ],
             "pending": [],
@@ -322,7 +303,7 @@ def run_turn(messages: list[dict], client) -> str:
             "attempts": {},
             "pending": [],
         },
-        config={"recursion_limit": 2 * MAX_MODEL_CALLS_PER_TURN + 10},
+        config={"recursion_limit": RECURSION_LIMIT},
     )
     messages[:] = result["messages"]
     for message in reversed(result["messages"]):

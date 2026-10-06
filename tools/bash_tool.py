@@ -8,11 +8,11 @@ import os
 import re
 import subprocess
 
+from policies import BASH_HEAD_CHARS as HEAD_CHARS
+from policies import BASH_STDERR_TAIL_CHARS as STDERR_TAIL_CHARS
+from policies import BASH_TAIL_CHARS as TAIL_CHARS
+
 DEFAULT_TIMEOUT_SECONDS = 30
-MAX_OUTPUT_CHARACTERS = 20_000
-HEAD_CHARS = int(os.getenv("BASH_HEAD_CHARS", "8000"))
-TAIL_CHARS = int(os.getenv("BASH_TAIL_CHARS", "8000"))
-STDERR_TAIL_CHARS = int(os.getenv("BASH_STDERR_TAIL_CHARS", "4000"))
 
 _QUOTED_WINDOWS_PATH = re.compile(
     r"""(?P<quote>[\"'])(?P<path>[A-Za-z]:[\\/](?![\\/])[^\"']+)(?P=quote)"""

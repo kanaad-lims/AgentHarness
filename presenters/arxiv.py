@@ -1,10 +1,8 @@
 """Compact arXiv formatting for model consumption"""
 
 import json
-import os
 
-ARXIV_ABSTRACT_CHARS = int(os.getenv("ARXIV_ABSTRACT_CHARS", "300"))
-ARXIV_FORMAT_MAX_CHARS = int(os.getenv("ARXIV_FORMAT_MAX_CHARS", "1500"))
+from policies import ARXIV_ABSTRACT_CHARS, ARXIV_FORMAT_MAX_CHARS
 
 
 def shorten_at_word(text: str, limit: int) -> str:
