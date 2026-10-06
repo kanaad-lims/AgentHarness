@@ -64,7 +64,7 @@ def test_run_turn_dispatches_tool_then_sends_result_back(monkeypatch):
 def test_run_turn_enforces_arxiv_limit_for_parallel_tool_calls(monkeypatch):
     searches = []
     monkeypatch.setattr(agent, "DEBUG_TOKEN_USAGE", False)
-    monkeypatch.setattr(agent, "MAX_ARXIV_CALLS_PER_TURN", 1)
+    monkeypatch.setattr("policies.checks.MAX_ARXIV_CALLS_PER_TURN", 1)
     monkeypatch.setitem(
         agent.TOOLS,
         "arxiv_search",
@@ -121,7 +121,7 @@ def test_duplicate_tool_call_is_not_executed_twice(monkeypatch):
 def test_failed_tool_call_may_retry_identical_arguments(monkeypatch):
     calls = []
     monkeypatch.setattr(agent, "DEBUG_TOKEN_USAGE", False)
-    monkeypatch.setattr(agent, "MAX_SAME_CALL_ATTEMPTS", 3)
+    monkeypatch.setattr("policies.checks.MAX_SAME_CALL_ATTEMPTS", 3)
     monkeypatch.setitem(
         agent.TOOLS, "bash", lambda command: calls.append(command) or "Error: boom"
     )

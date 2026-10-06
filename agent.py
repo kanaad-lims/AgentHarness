@@ -9,23 +9,16 @@ from langgraph.graph import END, START, StateGraph
 
 from llm import DEBUG_TOKEN_USAGE, MODEL, call_llm, create_client
 from policies import (
-    MAX_ARXIV_CALLS_PER_TURN,
     MAX_MODEL_CALLS_PER_TURN,
-    MAX_SAME_CALL_ATTEMPTS,
-    MAX_TOOL_CALLS_PER_TURN,
     MAX_TOOL_RESULT_CHARS,
     RECURSION_LIMIT,
     REQUIRE_BASH_APPROVAL,
 )
 from prompts import SYSTEM_PROMPT
 from prompts.messages import (
-    ARXIV_LIMIT_MESSAGE,
     BASH_APPROVAL_PROMPT,
     BASH_REQUEST_HEADER,
-    DUPLICATE_TOOL_MESSAGE,
     MODEL_LIMIT_ANSWER,
-    RETRY_LIMIT_MESSAGE,
-    TOOL_LIMIT_MESSAGE,
     plan_message,
 )
 from tools.browser_tool import run_browser
@@ -43,60 +36,19 @@ class AgentState(TypedDict):
     pending: list
 
 
-def _is_tool_failure(name: str, result: str) -> bool:
-    """Transient execution failures may be retried; successes must reformulate."""
-    if not isinstance(result, str):
-        return False
-    if (
-        result.startswith("Error:")
-        or result.startswith("Tool error")
-        or result.startswith("Timed out after")
-        or result.startswith("ArXiv error:")
-    ):
-        return True
-    stripped = result.strip()
-    if stripped.startswith("{") and '"error"' in stripped:
-        return True
-    return False
-
-
-def _approx_tokens(text: str) -> int:
-    return (len(text) + 3) // 4
-
-
-def _tool_call_fields(tool_call) -> tuple:
-    """Return (call_id, name, arguments_json_string) for object or dict calls."""
-    if hasattr(tool_call, "function"):
-        function = tool_call.function
-        if isinstance(function, dict):
-            name = function.get("name", "")
-            args_text = function.get("arguments", "{}")
-        else:
-            name = getattr(function, "name", "")
-            args_text = getattr(function, "arguments", "{}")
-        call_id = getattr(tool_call, "id", None)
-        if not isinstance(args_text, str):
-            args_text = json.dumps(args_text, ensure_ascii=False, default=str)
-        return call_id, name, args_text or "{}"
-    if isinstance(tool_call, dict):
-        function = tool_call.get("function", {})
-        if isinstance(function, dict):
-            return (
-                tool_call.get("id"),
-                function.get("name", ""),
-                function.get("arguments", "{}") or "{}",
-            )
-        return (
-            tool_call.get("id"),
-            tool_call.get("name", ""),
-            json.dumps(tool_call.get("args", {}), ensure_ascii=False, default=str),
-        )
-    return None, "", "{}"
+from policies.checks import (
+    approx_tokens,
+    call_key,
+    check_tool_call,
+    is_tool_failure,
+    parse_tool_arguments,
+    tool_call_fields,
+)
 
 
 def _execute_tool_call(tool_call) -> tuple[str, str, dict]:
     """Validate and execute one model-requested tool call."""
-    _, name, args_text = _tool_call_fields(tool_call)
+    _, name, args_text = tool_call_fields(tool_call)
     try:
         arguments = json.loads(args_text or "{}")
         if not isinstance(arguments, dict):
@@ -108,7 +60,7 @@ def _execute_tool_call(tool_call) -> tuple[str, str, dict]:
         args_text = json.dumps(arguments, ensure_ascii=False, default=str)
         print(
             f"[tool-debug] selected {name}; arguments "
-            f"{len(args_text):,} chars (~{_approx_tokens(args_text):,} tokens)"
+            f"{len(args_text):,} chars (~{approx_tokens(args_text):,} tokens)"
         )
 
     if name not in TOOLS:
@@ -133,7 +85,7 @@ def _execute_tool_call(tool_call) -> tuple[str, str, dict]:
     if DEBUG_TOKEN_USAGE:
         print(
             f"[tool-debug] {name} completed in {time.perf_counter() - started:.2f}s; "
-            f"result {len(result):,} chars (~{_approx_tokens(result):,} tokens)"
+            f"result {len(result):,} chars (~{approx_tokens(result):,} tokens)"
         )
     return name, result, arguments
 
@@ -172,35 +124,30 @@ def build_graph(client):
         attempts = dict(state.get("attempts", {}) or {})
 
         for tool_call in pending:
-            call_id, name, args_text = _tool_call_fields(tool_call)
-            try:
-                arguments = json.loads(args_text or "{}")
-            except (TypeError, json.JSONDecodeError):
-                arguments = {}
-            if not isinstance(arguments, dict):
-                arguments = {}
-            call_key = json.dumps(
-                [name, arguments], sort_keys=True, ensure_ascii=False
+            call_id, name, args_text = tool_call_fields(tool_call)
+            arguments = parse_tool_arguments(args_text)
+            key = call_key(name, arguments)
+            attempts_made = attempts.get(key, 0)
+            blocked, message = check_tool_call(
+                name,
+                arguments,
+                tool_calls_used=tool_calls_used,
+                arxiv_calls_used=arxiv_used,
+                attempts_made=attempts_made,
+                already_succeeded=key in successful,
             )
-            attempts_made = attempts.get(call_key, 0)
-            if tool_calls_used >= MAX_TOOL_CALLS_PER_TURN:
-                result = TOOL_LIMIT_MESSAGE
-            elif call_key in successful:
-                result = DUPLICATE_TOOL_MESSAGE
-            elif attempts_made >= MAX_SAME_CALL_ATTEMPTS:
-                result = RETRY_LIMIT_MESSAGE
-            elif name == "arxiv_search" and arxiv_used >= MAX_ARXIV_CALLS_PER_TURN:
-                result = ARXIV_LIMIT_MESSAGE
+            if blocked:
+                result = message
             else:
                 tool_calls_used += 1
-                attempts[call_key] = attempts_made + 1
+                attempts[key] = attempts_made + 1
                 if name == "arxiv_search":
                     arxiv_used += 1
                 dispatched_name, result, _ = _execute_tool_call(tool_call)
                 name = dispatched_name
-                if not _is_tool_failure(name, result):
-                    successful.add(call_key)
-                    new_seen.append(call_key)
+                if not is_tool_failure(name, result):
+                    successful.add(key)
+                    new_seen.append(key)
 
             tool_messages.append(
                 {
