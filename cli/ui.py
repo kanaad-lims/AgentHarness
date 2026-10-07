@@ -137,8 +137,3 @@ def show_session_header(console: Console, session_id: str) -> None:
         f"  [{ACCENT}]{clock}  •  READY[/]"
     )
     console.rule(style=DIM)
-
-
-def echo_user_input(console: Console, text: str) -> None:
-    """Echo the user's message with the > prefix."""
-    console.print(f"[bold {ACCENT}]>[/] {text}")

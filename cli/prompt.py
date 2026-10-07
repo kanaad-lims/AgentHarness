@@ -17,9 +17,9 @@ COMMANDS = [
 
 STYLE = Style.from_dict(
     {
-        "prompt": "bold #ffd700",
-        "completion-menu.completion": "bg:#1c1c1c #ffd700",
-        "completion-menu.completion.current": "bg:#ffd700 #000000",
+        "prompt": "bold #FFB52E",
+        "completion-menu.completion": "bg:#1c1c1c #FFB52E",
+        "completion-menu.completion.current": "bg:#FFB52E #000000",
     }
 )
 
@@ -29,7 +29,7 @@ def create_session(extra_commands: list[str] | None = None) -> PromptSession:
     words = COMMANDS + (extra_commands or [])
     completer = WordCompleter(words, ignore_case=True, sentence=True)
     return PromptSession(
-        message=[("class:prompt", "You: ")],
+        message=[("class:prompt", "> ")],
         history=InMemoryHistory(),
         completer=completer,
         style=STYLE,

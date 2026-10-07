@@ -249,7 +249,6 @@ def main() -> None:
     from cli.ui import (
         APP_VERSION,
         HELP_TEXT,
-        echo_user_input,
         render_splash,
         show_phase,
         show_session_header,
@@ -297,7 +296,6 @@ def main() -> None:
 
         if client is None:
             client = create_client()
-        echo_user_input(console, user_input)
         messages.append({"role": "user", "content": user_input})
         try:
             answer = run_turn(messages, client, on_phase=lambda phase: show_phase(console, phase))

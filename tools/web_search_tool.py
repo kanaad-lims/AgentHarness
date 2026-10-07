@@ -10,6 +10,7 @@ WEB_SEARCH_TOOL_SCHEMA = {
             "Search the general web via DuckDuckGo. Use for current events, "
             "facts, docs, and anything that is not an arXiv paper lookup. "
             "Returns titles, URLs, and snippets for the model to summarize."
+            "Grounding rules: answer ONLY from the returned results. Cite the source URL for every factual claim. If the results lack the answer, say so and suggest a refined query. Never invent titles, URLs, dates, or quotes."
         ),
         "parameters": {
             "type": "object",
