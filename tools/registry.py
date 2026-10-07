@@ -61,3 +61,8 @@ TOOLS = {
     "write_todos": write_todos,
 }
 TOOL_NAMES = list(TOOLS)
+TOOL_GROUPS = {
+    "shell": ["bash"],
+    "search": ["arxiv_search", "web_search"],
+    "productivity": ["write_todos"],
+}

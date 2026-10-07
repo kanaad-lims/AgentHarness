@@ -14,12 +14,12 @@ ACCENT = "#FFB52E"
 DIM = "yellow3"
 
 BANNER = r"""
-███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗███████╗
-████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔════╝
-██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████╗
-██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ╚════██║
-██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ███████║
-╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝
+██╗  ██╗███████╗██╗   ██╗
+██║  ██║██╔════╝╚██╗ ██╔╝
+███████║█████╗   ╚████╔╝ 
+██╔══██║██╔══╝    ╚██╔╝  
+██║  ██║███████╗   ██║   
+╚═╝  ╚═╝╚══════╝   ╚═╝   
                                                                                                      
 """.strip("\n")
 
@@ -34,26 +34,30 @@ BANNER_GRADIENT = [
 ]
 
 
-def _tool_groups(tool_names: list[str]) -> list[str]:
-    groups: dict[str, list[str]] = {}
-    for name in tool_names:
-        groups.setdefault("general", []).append(name)
-    return [f"[dim]{group}[/]:  " + ", ".join(sorted(names)) for group, names in sorted(groups.items())]
+# Placeholder skill listing until the skills layer lands.
+PLACEHOLDER_SKILLS = {
+    "research": ["arxiv", "web-research"],
+    "software-development": ["code-review", "debugging"],
+    "productivity": ["task-planning"],
+}
 
 
-def _skill_groups(skills: dict[str, list[str]]) -> list[str]:
-    if not skills:
-        return ["[dim]none yet[/] — skills land after the injection layer"]
-    return [f"[dim]{group}[/]:  " + ", ".join(sorted(names)) for group, names in sorted(skills.items())]
+def _group_rows(groups: dict[str, list[str]]) -> list[str]:
+    return [
+        f"[dim]{group}[/]:  " + ", ".join(names)
+        for group, names in sorted(groups.items())
+    ]
 
 
 def render_splash(
     console: Console,
-    tool_names: list[str],
+    tool_groups: dict[str, list[str]],
     skills: dict[str, list[str]] | None = None,
 ) -> None:
     """Render the two-column splash: banner/tools/skills left, emblem right."""
-    skills = skills or {}
+    skills = skills if skills is not None else PLACEHOLDER_SKILLS
+    tool_count = sum(len(names) for names in tool_groups.values())
+    skill_count = sum(len(names) for names in skills.values())
     left = Text(no_wrap=False)
     for index, line in enumerate(BANNER.splitlines()):
         color = BANNER_GRADIENT[index % len(BANNER_GRADIENT)]
@@ -61,14 +65,14 @@ def render_splash(
     left.append(f"\n{APP_NAME} {APP_VERSION} ", style=f"bold {ACCENT}")
     left.append("•  experimental harness  •  local runtime\n", style=ACCENT)
     left.append("\nAvailable Tools\n", style=f"bold {ACCENT}")
-    for row in _tool_groups(tool_names):
-        left.append(row + "\n")
+    for row in _group_rows(tool_groups):
+        left.append_text(Text.from_markup(row + "\n"))
     left.append("\nAvailable Skills\n", style=f"bold {ACCENT}")
-    for row in _skill_groups(skills):
-        left.append(row + "\n")
+    for row in _group_rows(skills):
+        left.append_text(Text.from_markup(row + "\n"))
     left.append(
-        f"\n{len(tool_names)} tools  •  "
-        f"{sum(len(v) for v in skills.values())} skills  •  /help for commands",
+        f"\n{tool_count} tools  •  "
+        f"{skill_count} skills  •  /help for commands",
         style=DIM,
     )
 
