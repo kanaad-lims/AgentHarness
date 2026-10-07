@@ -99,7 +99,7 @@ def render_splash(
     left.append(f"Session: {session_id}\n", style=DIM)
 
     right = Text(no_wrap=False)
-    right.append("\nAvailable Tools\n", style=f"bold {ACCENT}")
+    right.append("\nAvailable Tool Groups\n", style=f"bold {ACCENT}")
     for row in _group_rows(tool_groups):
         right.append_text(Text.from_markup(row + "\n"))
     right.append("\nAvailable Skills\n", style=f"bold {ACCENT}")
