@@ -6,6 +6,10 @@ LLM layer import from this module; nothing else calls os.getenv directly.
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # --- Model / provider ---
 MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 _COMPLETION_TOKENS = os.getenv("MAX_COMPLETION_TOKENS")

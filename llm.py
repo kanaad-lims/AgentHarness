@@ -3,12 +3,8 @@
 import json
 import time
 
-from dotenv import load_dotenv
 from groq import Groq
-
 from config import DEBUG_TOKEN_USAGE, MAX_COMPLETION_TOKENS, MODEL
-
-load_dotenv()
 
 
 def create_client() -> Groq:
