@@ -90,13 +90,16 @@ def _execute_tool_call(tool_call) -> tuple[str, str, dict]:
     return name, result, arguments
 
 
-def build_graph(client):
+def build_graph(client, on_phase=None):
     """Build the LangGraph workflow around the existing tool implementation."""
+    emit = on_phase or (lambda _phase: None)
 
     def call_model(state: AgentState) -> dict:
         current_plan = get_todos()
+        emit("thinking")
         request_messages = list(state["messages"])
         if current_plan:
+            emit("planning")
             request_messages.append(plan_message(current_plan))
 
         response = call_llm(request_messages, client, TOOL_SCHEMAS)
@@ -116,6 +119,8 @@ def build_graph(client):
 
     def run_tools(state: AgentState) -> dict:
         pending = state.get("pending", []) or []
+        if pending:
+            emit("selecting")
         tool_messages = []
         new_seen: list[str] = []
         tool_calls_used = state.get("tool_calls", 0)
@@ -203,9 +208,10 @@ def build_graph(client):
     return graph.compile()
 
 
-def run_turn(messages: list[dict], client) -> str:
+def run_turn(messages: list[dict], client, on_phase=None) -> str:
     """Run one user turn through the LangGraph workflow."""
-    app = build_graph(client)
+    emit = on_phase or (lambda _phase: None)
+    app = build_graph(client, on_phase=emit)
     result = app.invoke(
         {
             "messages": list(messages),
@@ -219,6 +225,7 @@ def run_turn(messages: list[dict], client) -> str:
         config={"recursion_limit": RECURSION_LIMIT},
     )
     messages[:] = result["messages"]
+    emit("accepted")
     for message in reversed(result["messages"]):
         if isinstance(message, dict) and message.get("role") == "assistant":
             return message.get("content", "") or ""
@@ -227,13 +234,33 @@ def run_turn(messages: list[dict], client) -> str:
 
 def main() -> None:
     """Start the orchestrator agent."""
+    import uuid
+
+    from rich.console import Console
+
+    from cli.prompt import create_session
+    from cli.ui import (
+        APP_VERSION,
+        HELP_TEXT,
+        echo_user_input,
+        render_splash,
+        show_phase,
+        show_session_header,
+    )
+    from tools.registry import TOOL_NAMES, TOOLS
+
+    console = Console()
+    render_splash(console, TOOL_NAMES)
+    show_session_header(console, uuid.uuid4().hex[:12])
+    console.print(f"[dim]Model: {MODEL}  •  {APP_VERSION}  •  /help for commands[/]\n")
+
     client = None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    print(f"Agent ({MODEL}). Type /bye to exit.\n")
+    session = create_session()
 
     while True:
         try:
-            user_input = input("You: ").strip()
+            user_input = session.prompt().strip()
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye!🧃")
             break
@@ -244,6 +271,18 @@ def main() -> None:
         if not user_input:
             continue
 
+        if user_input == "/help":
+            console.print(HELP_TEXT)
+            continue
+
+        if user_input == "/tools":
+            console.print(f"[dim]tools:[/] {', '.join(sorted(TOOLS))}")
+            continue
+
+        if user_input == "/model":
+            console.print(f"[dim]model:[/] {MODEL}")
+            continue
+
         if user_input == "/browser" or user_input.startswith("/browser "):
             command = user_input[len("/browser"):].strip()
             print(f"\n{run_browser(command)}\n")
@@ -251,9 +290,10 @@ def main() -> None:
 
         if client is None:
             client = create_client()
+        echo_user_input(console, user_input)
         messages.append({"role": "user", "content": user_input})
         try:
-            answer = run_turn(messages, client)
+            answer = run_turn(messages, client, on_phase=lambda phase: show_phase(console, phase))
             print(f"\nAgent: {answer}\n")
         except Exception as error:
             print(f"\nRequest failed: {error}\n")
