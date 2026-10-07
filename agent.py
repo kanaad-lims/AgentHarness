@@ -226,7 +226,7 @@ def run_turn(messages: list[dict], client) -> str:
 
 
 def main() -> None:
-    """Start the interactive agent."""
+    """Start the orchestrator agent."""
     client = None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     print(f"Agent ({MODEL}). Type /bye to exit.\n")
@@ -235,11 +235,11 @@ def main() -> None:
         try:
             user_input = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
+            print("\nGoodbye!🧃")
             break
 
         if user_input.lower() in {"/bye", "/exit", "/quit"}:
-            print("Goodbye!")
+            print("Goodbye!🧃")
             break
         if not user_input:
             continue
