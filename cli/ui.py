@@ -58,19 +58,6 @@ def _group_rows(groups: dict[str, list[str]]) -> list[str]:
     return rows
 
 
-def _banner_text() -> Text:
-    from rich.align import Align
-
-    banner = Text(no_wrap=True)
-    banner_lines = BANNER.splitlines()
-    for index, line in enumerate(banner_lines):
-        color = BANNER_GRADIENT[index % len(BANNER_GRADIENT)]
-        banner.append(line, style=f"bold {color}")
-        if index < len(banner_lines) - 1:
-            banner.append("\n")
-    return Align.center(banner)
-
-
 def render_splash(
     console: Console,
     tool_groups: dict[str, list[str]],
@@ -89,8 +76,6 @@ def render_splash(
     working_dir = working_dir or os.getcwd()
 
     console.print()
-    console.print()
-    console.print(_banner_text())
 
     left = Text()
     left.append("\n".join(EMBLEM.splitlines()) + "\n\n", style=ACCENT)
@@ -99,6 +84,13 @@ def render_splash(
     left.append(f"Session: {session_id}\n", style=DIM)
 
     right = Text(no_wrap=False)
+    banner_lines = BANNER.splitlines()
+    for index, line in enumerate(banner_lines):
+        color = BANNER_GRADIENT[index % len(BANNER_GRADIENT)]
+        right.append(line, style=f"bold {color}")
+        if index < len(banner_lines) - 1:
+            right.append("\n")
+    right.append(f"\n\n{APP_NAME} {APP_VERSION}\n", style=f"bold {ACCENT}")
     right.append("\nAvailable Tool Groups\n", style=f"bold {ACCENT}")
     for row in _group_rows(tool_groups):
         right.append_text(Text.from_markup(row + "\n"))
@@ -112,7 +104,7 @@ def render_splash(
 
     title = f"{APP_NAME} {APP_VERSION}  •  experimental harness  •  local runtime"
     columns = Columns([left, right], equal=False, expand=True)
-    console.print(Panel(columns, title=title, border_style=ACCENT, padding=(0, 2)))
+    console.print(Panel(columns, title=title, border_style=ACCENT, padding=(1, 2)))
 
 
 def show_welcome(console: Console) -> None:
