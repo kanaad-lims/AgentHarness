@@ -4,7 +4,6 @@ from cli.prompt import create_session
 from cli.ui import (
     HELP_TEXT,
     approval_card,
-    echo_user_input,
     render_splash,
     run_with_spinner,
     show_answer,
@@ -17,7 +16,6 @@ __all__ = [
     "HELP_TEXT",
     "approval_card",
     "create_session",
-    "echo_user_input",
     "render_splash",
     "run_with_spinner",
     "show_answer",
