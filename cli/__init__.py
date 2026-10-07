@@ -10,6 +10,7 @@ from cli.ui import (
     show_phase,
     show_session_header,
     show_tool_event,
+    show_welcome,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "show_phase",
     "show_session_header",
     "show_tool_event",
+    "show_welcome",
 ]

@@ -14,13 +14,14 @@ ACCENT = "#FFB52E"
 DIM = "yellow3"
 
 BANNER = r"""
-██╗  ██╗███████╗██╗   ██╗
-██║  ██║██╔════╝╚██╗ ██╔╝
-███████║█████╗   ╚████╔╝ 
-██╔══██║██╔══╝    ╚██╔╝  
-██║  ██║███████╗   ██║   
-╚═╝  ╚═╝╚══════╝   ╚═╝   
+███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗███████╗
+████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔════╝
+██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████╗
+██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ╚════██║
+██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ███████║
+╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝
                                                                                                      
+                                                                                                  
 """.strip("\n")
 
 
@@ -42,43 +43,86 @@ PLACEHOLDER_SKILLS = {
 }
 
 
+MAX_ROW_NAMES = 4
+
+
 def _group_rows(groups: dict[str, list[str]]) -> list[str]:
-    return [
-        f"[dim]{group}[/]:  " + ", ".join(names)
-        for group, names in sorted(groups.items())
-    ]
+    rows = []
+    for group, names in sorted(groups.items()):
+        shown = names[:MAX_ROW_NAMES]
+        extra = len(names) - len(shown)
+        row = f"[dim]{group}[/]:  " + ", ".join(shown)
+        if extra > 0:
+            row += f"  [dim]+{extra} more[/]"
+        rows.append(row)
+    return rows
+
+
+def _banner_text() -> Text:
+    from rich.align import Align
+
+    banner = Text(no_wrap=True)
+    banner_lines = BANNER.splitlines()
+    for index, line in enumerate(banner_lines):
+        color = BANNER_GRADIENT[index % len(BANNER_GRADIENT)]
+        banner.append(line, style=f"bold {color}")
+        if index < len(banner_lines) - 1:
+            banner.append("\n")
+    return Align.center(banner)
 
 
 def render_splash(
     console: Console,
     tool_groups: dict[str, list[str]],
     skills: dict[str, list[str]] | None = None,
+    *,
+    model: str = "",
+    session_id: str = "",
+    working_dir: str = "",
 ) -> None:
-    """Render the two-column splash: banner/tools/skills left, emblem right."""
+    """Hermes-style splash: full-width banner, titled panel, emblem left."""
+    import os
+
     skills = skills if skills is not None else PLACEHOLDER_SKILLS
     tool_count = sum(len(names) for names in tool_groups.values())
     skill_count = sum(len(names) for names in skills.values())
-    left = Text(no_wrap=False)
-    for index, line in enumerate(BANNER.splitlines()):
-        color = BANNER_GRADIENT[index % len(BANNER_GRADIENT)]
-        left.append(line + "\n", style=color)
-    left.append(f"\n{APP_NAME} {APP_VERSION} ", style=f"bold {ACCENT}")
-    left.append("•  experimental harness  •  local runtime\n", style=ACCENT)
-    left.append("\nAvailable Tools\n", style=f"bold {ACCENT}")
+    working_dir = working_dir or os.getcwd()
+
+    console.print()
+    console.print()
+    console.print(_banner_text())
+
+    left = Text()
+    left.append("\n".join(EMBLEM.splitlines()) + "\n\n", style=ACCENT)
+    left.append(f"{model}  •  local runtime\n", style=f"bold {ACCENT}")
+    left.append(f"{working_dir}\n", style=DIM)
+    left.append(f"Session: {session_id}\n", style=DIM)
+
+    right = Text(no_wrap=False)
+    right.append("\nAvailable Tools\n", style=f"bold {ACCENT}")
     for row in _group_rows(tool_groups):
-        left.append_text(Text.from_markup(row + "\n"))
-    left.append("\nAvailable Skills\n", style=f"bold {ACCENT}")
+        right.append_text(Text.from_markup(row + "\n"))
+    right.append("\nAvailable Skills\n", style=f"bold {ACCENT}")
     for row in _group_rows(skills):
-        left.append_text(Text.from_markup(row + "\n"))
-    left.append(
-        f"\n{tool_count} tools  •  "
-        f"{skill_count} skills  •  /help for commands",
+        right.append_text(Text.from_markup(row + "\n"))
+    right.append(
+        f"\n{tool_count} tools  •  {skill_count} skills  •  /help for commands",
         style=DIM,
     )
 
-    right = Text("\n".join(EMBLEM.splitlines()), style=ACCENT)
+    title = f"{APP_NAME} {APP_VERSION}  •  experimental harness  •  local runtime"
     columns = Columns([left, right], equal=False, expand=True)
-    console.print(Panel(columns, border_style=ACCENT, padding=(1, 2)))
+    console.print(Panel(columns, title=title, border_style=ACCENT, padding=(0, 2)))
+
+
+def show_welcome(console: Console) -> None:
+    """Print the welcome + tip lines below the splash panel."""
+    console.print(
+        f"Welcome to {APP_NAME}! Type your message or /help for commands."
+    )
+    console.print(
+        "[dim]◆ Tip: approvals, tools and runtime state are managed by the harness.[/]"
+    )
 
 
 def approval_card(console: Console, header: str, command: str) -> None:

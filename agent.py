@@ -252,12 +252,15 @@ def main() -> None:
         render_splash,
         show_phase,
         show_session_header,
+        show_welcome,
     )
     from tools.registry import TOOL_GROUPS, TOOLS
 
     console = Console()
-    render_splash(console, TOOL_GROUPS)
-    show_session_header(console, uuid.uuid4().hex[:12])
+    session_id = uuid.uuid4().hex[:12]
+    render_splash(console, TOOL_GROUPS, model=MODEL, session_id=session_id)
+    show_welcome(console)
+    show_session_header(console, session_id)
     console.print(f"[dim]Model: {MODEL}  •  {APP_VERSION}  •  /help for commands[/]\n")
 
     client = None
