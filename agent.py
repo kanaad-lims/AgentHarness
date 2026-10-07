@@ -31,6 +31,7 @@ class AgentState(TypedDict):
     model_calls: int
     tool_calls: int
     arxiv_calls: int
+    web_calls: int
     seen_keys: Annotated[list[str], operator.add]
     attempts: dict
     pending: list
@@ -125,6 +126,7 @@ def build_graph(client, on_phase=None):
         new_seen: list[str] = []
         tool_calls_used = state.get("tool_calls", 0)
         arxiv_used = state.get("arxiv_calls", 0)
+        web_used = state.get("web_calls", 0)
         successful = set(state.get("seen_keys", []))
         attempts = dict(state.get("attempts", {}) or {})
 
@@ -138,6 +140,7 @@ def build_graph(client, on_phase=None):
                 arguments,
                 tool_calls_used=tool_calls_used,
                 arxiv_calls_used=arxiv_used,
+                web_calls_used=web_used,
                 attempts_made=attempts_made,
                 already_succeeded=key in successful,
             )
@@ -148,6 +151,8 @@ def build_graph(client, on_phase=None):
                 attempts[key] = attempts_made + 1
                 if name == "arxiv_search":
                     arxiv_used += 1
+                if name == "web_search":
+                    web_used += 1
                 dispatched_name, result, _ = _execute_tool_call(tool_call)
                 name = dispatched_name
                 if not is_tool_failure(name, result):
@@ -167,6 +172,7 @@ def build_graph(client, on_phase=None):
             "messages": tool_messages,
             "tool_calls": tool_calls_used,
             "arxiv_calls": arxiv_used,
+            "web_calls": web_used,
             "seen_keys": new_seen,
             "attempts": attempts,
             "pending": [],
@@ -218,6 +224,7 @@ def run_turn(messages: list[dict], client, on_phase=None) -> str:
             "model_calls": 0,
             "tool_calls": 0,
             "arxiv_calls": 0,
+            "web_calls": 0,
             "seen_keys": [],
             "attempts": {},
             "pending": [],

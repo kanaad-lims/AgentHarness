@@ -1,4 +1,5 @@
 arxiv
+ddgs
 groq
 langgraph
 playwright

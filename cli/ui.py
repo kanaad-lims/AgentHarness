@@ -6,7 +6,7 @@ from rich.panel import Panel
 from rich.status import Status
 from rich.text import Text
 
-from cli.art import EMBLEM_LINES
+from cli.art import EMBLEM
 
 APP_NAME = "NEXUS-AGENT"
 APP_VERSION = "v0.1.0"
@@ -72,7 +72,7 @@ def render_splash(
         style=DIM,
     )
 
-    right = Text("\n".join(EMBLEM_LINES), style=ACCENT)
+    right = Text("\n".join(EMBLEM.splitlines()), style=ACCENT)
     columns = Columns([left, right], equal=False, expand=True)
     console.print(Panel(columns, border_style=ACCENT, padding=(1, 2)))
 

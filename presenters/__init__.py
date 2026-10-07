@@ -2,5 +2,6 @@
 
 from presenters.arxiv import format_arxiv_results
 from presenters.bash import format_bash_result
+from presenters.web import format_web_results
 
-__all__ = ["format_arxiv_results", "format_bash_result"]
+__all__ = ["format_arxiv_results", "format_bash_result", "format_web_results"]

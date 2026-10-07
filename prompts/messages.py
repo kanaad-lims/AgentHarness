@@ -14,6 +14,10 @@ ARXIV_LIMIT_MESSAGE = (
     "ArXiv search limit reached for this request. Use the arXiv results "
     "already in the conversation to answer."
 )
+WEB_LIMIT_MESSAGE = (
+    "Web search limit reached for this request. Use the web results "
+    "already in the conversation to answer."
+)
 MODEL_LIMIT_ANSWER = (
     "I reached the model-call limit for this request. "
     "Please ask me to continue if more work is needed."
