@@ -56,7 +56,7 @@ def test_run_turn_dispatches_tool_then_sends_result_back(monkeypatch):
     assert answer == "Plan saved."
     assert todo_tool.get_todos() == plan
     assert messages[-2]["role"] == "tool"
-    assert "Inspect project" in messages[-2]["content"]
+    assert messages[-2]["content"] == "Plan saved: 1 tasks, 1 remaining."
     assert requests[0][1] == agent.TOOL_SCHEMAS
     assert "Current plan (authoritative)" in requests[1][0][-1]["content"]
 
@@ -64,20 +64,21 @@ def test_run_turn_dispatches_tool_then_sends_result_back(monkeypatch):
 def test_run_turn_enforces_arxiv_limit_for_parallel_tool_calls(monkeypatch):
     searches = []
     monkeypatch.setattr(agent, "DEBUG_TOKEN_USAGE", False)
-    monkeypatch.setattr("policies.checks.MAX_ARXIV_CALLS_PER_TURN", 1)
+    monkeypatch.setattr("policies.checks.MAX_ARXIV_CALLS_PER_TURN", 3)
     monkeypatch.setitem(
         agent.TOOLS,
         "arxiv_search",
         lambda query, **_kwargs: searches.append(query) or [{"title": "Paper"}],
     )
+    tool_calls = [
+        _tool_call("arxiv_search", f'{{"query":"topic {index}"}}', f"id-{index}")
+        for index in range(4)
+    ]
     responses = iter(
         [
             SimpleNamespace(
                 content=None,
-                tool_calls=[
-                    _tool_call("arxiv_search", '{"query":"attention 2026"}', "a"),
-                    _tool_call("arxiv_search", '{"query":"transformer attention"}', "b"),
-                ],
+                tool_calls=tool_calls,
                 model_dump=lambda exclude_none=True: {"role": "assistant", "tool_calls": []},
             ),
             SimpleNamespace(content="Here are the papers.", tool_calls=[]),
@@ -88,9 +89,9 @@ def test_run_turn_enforces_arxiv_limit_for_parallel_tool_calls(monkeypatch):
 
     agent.run_turn(messages, client=object())
 
-    assert searches == ["attention 2026"]
+    assert searches == ["topic 0", "topic 1", "topic 2"]
     tool_results = [message["content"] for message in messages if message.get("role") == "tool"]
-    assert any("Arxiv search limit reached" in result for result in tool_results)
+    assert any("ArXiv search limit reached" in result for result in tool_results)
 
 
 def test_duplicate_tool_call_is_not_executed_twice(monkeypatch):
@@ -121,6 +122,7 @@ def test_duplicate_tool_call_is_not_executed_twice(monkeypatch):
 def test_failed_tool_call_may_retry_identical_arguments(monkeypatch):
     calls = []
     monkeypatch.setattr(agent, "DEBUG_TOKEN_USAGE", False)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
     monkeypatch.setattr("policies.checks.MAX_SAME_CALL_ATTEMPTS", 3)
     monkeypatch.setitem(
         agent.TOOLS, "bash", lambda command: calls.append(command) or "Error: boom"
@@ -162,7 +164,15 @@ def test_format_arxiv_results_shortens_abstracts_and_keeps_links():
             "summary": "word " * 500,
             "url": "http://arxiv.org/abs/0001",
             "pdf_url": "",
-        }
+        },
+        {
+            "title": "Full Title Two",
+            "authors": "E Five",
+            "published": "2026-10-02",
+            "summary": "word " * 500,
+            "url": "http://arxiv.org/abs/0002",
+            "pdf_url": "",
+        },
     ]
 
     text = arxiv_presenter.format_arxiv_results(papers)
