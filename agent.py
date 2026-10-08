@@ -250,6 +250,7 @@ def main() -> None:
         APP_VERSION,
         HELP_TEXT,
         render_splash,
+        show_answer,
         show_phase,
         show_session_header,
         show_welcome,
@@ -302,7 +303,7 @@ def main() -> None:
         messages.append({"role": "user", "content": user_input})
         try:
             answer = run_turn(messages, client, on_phase=lambda phase: show_phase(console, phase))
-            print(f"\nAgent: {answer}\n")
+            show_answer(console, answer)
         except Exception as error:
             print(f"\nRequest failed: {error}\n")
 

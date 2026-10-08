@@ -10,8 +10,8 @@ from cli.art import EMBLEM
 
 APP_NAME = "NEXUS-AGENT"
 APP_VERSION = "v0.1.0"
-ACCENT = "#FFB52E"
-DIM = "yellow3"
+ACCENT = "#2BD97C"
+DIM = "#5E9C7B"
 
 BANNER = r"""
 ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗███████╗
@@ -26,12 +26,11 @@ BANNER = r"""
 
 
 BANNER_GRADIENT = [
-    "#FFE955",
-    "#FFD93B",
-    "#FFC93C",
-    "#FFB52E",
-    "#FF9E2C",
-    "#FF8C1A",
+    "#D2FAD8",
+    "#9BF2B4",
+    "#54DE8B",
+    "#1FBD66",
+    "#0B7A43",
 ]
 
 
@@ -130,7 +129,7 @@ def show_tool_event(console: Console, text: str) -> None:
 
 
 def show_answer(console: Console, text: str) -> None:
-    console.print(f"\n[bold]Agent:[/] {text}\n")
+    console.print(Panel(text, title="◆Nexus", border_style=ACCENT, padding=(0, 1)))
 
 
 def run_with_spinner(console: Console, label: str):

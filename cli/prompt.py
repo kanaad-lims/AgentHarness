@@ -17,9 +17,9 @@ COMMANDS = [
 
 STYLE = Style.from_dict(
     {
-        "prompt": "bold #FFB52E",
-        "completion-menu.completion": "bg:#1c1c1c #FFB52E",
-        "completion-menu.completion.current": "bg:#FFB52E #000000",
+        "prompt": "bold #2BD97C",
+        "completion-menu.completion": "bg:#1c1c1c #2BD97C",
+        "completion-menu.completion.current": "bg:#2BD97C #000000",
     }
 )
 
