@@ -1,4 +1,4 @@
-"""NEXUS emblem asset."""
+"""BOREAS emblem asset."""
 
 # EMBLEM = r"""
 

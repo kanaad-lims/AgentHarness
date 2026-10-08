@@ -1,4 +1,4 @@
-"""Terminal UI for the NEXUS-AGENT harness (rich + prompt_toolkit)."""
+"""Terminal UI for the BOREAS-AGENT harness (rich + prompt_toolkit)."""
 
 from cli.prompt import create_session
 from cli.ui import (

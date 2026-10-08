@@ -1,4 +1,4 @@
-"""NEXUS."""
+"""BOREAS."""
 
 from rich.columns import Columns
 from rich.console import Console
@@ -8,18 +8,19 @@ from rich.text import Text
 
 from cli.art import EMBLEM
 
-APP_NAME = "NEXUS-AGENT"
+APP_NAME = "BOREAS-AGENT"
 APP_VERSION = "v0.1.0"
 ACCENT = "#2BD97C"
 DIM = "#5E9C7B"
 
 BANNER = r"""
-███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗███████╗
-████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔════╝
-██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████╗
-██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ╚════██║
-██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ███████║
-╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝
+██████╗  ██████╗ ██████╗ ███████╗ █████╗ ███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗
+██╔══██╗██╔═══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+██████╔╝██║   ██║██████╔╝█████╗  ███████║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   
+██╔══██╗██║   ██║██╔══██╗██╔══╝  ██╔══██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   
+██████╔╝╚██████╔╝██║  ██║███████╗██║  ██║███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   
+╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   
+                                                                                                   
                                                                                                      
                                                                                                   
 """.strip("\n")
@@ -129,7 +130,7 @@ def show_tool_event(console: Console, text: str) -> None:
 
 
 def show_answer(console: Console, text: str) -> None:
-    console.print(Panel(text, title="◆Nexus", border_style=ACCENT, padding=(0, 1)))
+    console.print(Panel(text, title="◆Boreas", border_style=ACCENT, padding=(0, 1)))
 
 
 def run_with_spinner(console: Console, label: str):
@@ -166,12 +167,12 @@ def show_phase(console: Console, phase: str) -> None:
 
 
 def show_session_header(console: Console, session_id: str) -> None:
-    """Print the nexus:local session status bar."""
+    """Print the boreas:local session status bar."""
     from datetime import datetime
 
     clock = datetime.now().strftime("%H:%M:%S")
     console.print(
-        f"[{ACCENT}]◆ nexus:local[/]"
+        f"[{ACCENT}]◆ boreas:local[/]"
         f"  [dim]session {session_id}[/]"
         f"  [{ACCENT}]{clock}  •  READY[/]"
     )
