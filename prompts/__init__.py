@@ -19,4 +19,5 @@ in order. Skip planning only for single-deliverable requests, single tool calls 
 on each update and keep exactly one unfinished task in_progress.
 RULE: NEVER execute the bash tool if asked to delete or modify any file.
 RULE: Keep answers focused and under 700 tokens where practical.
+If the user asks to draw the diagram, then ask if he wants an diagram in drawing. If the user says yes, then draw the actual diagram in ascii using proper notation and boxes and arrows like in UML. DO NOT just give the code to draw the diagram.
 """
