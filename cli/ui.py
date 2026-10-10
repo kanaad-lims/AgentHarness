@@ -78,7 +78,11 @@ def render_splash(
     console.print()
 
     left = Text()
-    left.append("\n".join(EMBLEM.splitlines()) + "\n\n", style=ACCENT)
+    emblem_lines = EMBLEM.splitlines()
+    for index, line in enumerate(emblem_lines):
+        color = BANNER_GRADIENT[index % len(BANNER_GRADIENT)]
+        left.append(line + "\n", style=color)
+    left.append("\n", style=ACCENT)
     left.append(f"{model}  •  local runtime\n", style=f"bold {ACCENT}")
     left.append(f"{working_dir}\n", style=DIM)
     left.append(f"Session: {session_id}\n", style=DIM)
