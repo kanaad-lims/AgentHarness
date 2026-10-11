@@ -9,6 +9,7 @@ from config import MAX_ARXIV_RESULTS_PER_CALL, WEB_MAX_RESULTS_PER_CALL
 from presenters.arxiv import format_arxiv_results
 from presenters.bash import format_bash_result
 from presenters.web import format_web_results
+from skills.skill_tool import READ_SKILL_TOOL_SCHEMA, read_skill
 from tools.arxiv_search_tool import ARXIV_SEARCH_TOOL_SCHEMA, arxiv_search
 from tools.bash_tool import BASH_TOOL_SCHEMA, run_bash
 from tools.todo_tool import TODO_TOOL_SCHEMA, write_todos
@@ -53,16 +54,18 @@ TOOL_SCHEMAS = [
     ARXIV_SEARCH_TOOL_SCHEMA,
     WEB_SEARCH_TOOL_SCHEMA,
     TODO_TOOL_SCHEMA,
+    READ_SKILL_TOOL_SCHEMA,
 ]
 TOOLS = {
     "bash": run_bash_tool,
     "arxiv_search": search_arxiv,
     "web_search": search_web,
     "write_todos": write_todos,
+    "read_skill": read_skill,
 }
 TOOL_NAMES = list(TOOLS)
 TOOL_GROUPS = {
     "shell": ["bash"],
     "search": ["arxiv_search", "web_search"],
-    "productivity": ["write_todos"],
+    "productivity": ["write_todos", "read_skill"],
 }

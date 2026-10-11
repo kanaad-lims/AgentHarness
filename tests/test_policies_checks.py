@@ -6,6 +6,7 @@ def _allow(**overrides):
         "tool_calls_used": 0,
         "arxiv_calls_used": 0,
         "web_calls_used": 0,
+        "skill_reads_used": 0,
         "attempts_made": 0,
         "already_succeeded": False,
     }
@@ -33,6 +34,7 @@ def test_blocks_arxiv_over_its_limit():
         tool_calls_used=0,
         arxiv_calls_used=99,
         web_calls_used=0,
+        skill_reads_used=0,
         attempts_made=0,
         already_succeeded=False,
     )
@@ -47,11 +49,27 @@ def test_blocks_web_over_its_limit():
         tool_calls_used=0,
         arxiv_calls_used=0,
         web_calls_used=99,
+        skill_reads_used=0,
         attempts_made=0,
         already_succeeded=False,
     )
     assert blocked is True
     assert "Web search limit" in message
+
+
+def test_blocks_skill_reads_over_limit():
+    blocked, message = checks.check_tool_call(
+        "read_skill",
+        {"skill_name": "arxiv-research"},
+        tool_calls_used=0,
+        arxiv_calls_used=0,
+        web_calls_used=0,
+        skill_reads_used=99,
+        attempts_made=0,
+        already_succeeded=False,
+    )
+    assert blocked is True
+    assert "Skill limit" in message
 
 
 def test_failure_classifier():

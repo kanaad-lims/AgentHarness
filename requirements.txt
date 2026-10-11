@@ -6,4 +6,5 @@ playwright
 prompt_toolkit
 python-dotenv
 pytest
+pyyaml
 rich

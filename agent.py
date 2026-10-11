@@ -32,6 +32,7 @@ class AgentState(TypedDict):
     tool_calls: int
     arxiv_calls: int
     web_calls: int
+    skill_calls: int
     seen_keys: Annotated[list[str], operator.add]
     attempts: dict
     pending: list
@@ -127,6 +128,7 @@ def build_graph(client, on_phase=None):
         tool_calls_used = state.get("tool_calls", 0)
         arxiv_used = state.get("arxiv_calls", 0)
         web_used = state.get("web_calls", 0)
+        skill_used = state.get("skill_calls", 0)
         successful = set(state.get("seen_keys", []))
         attempts = dict(state.get("attempts", {}) or {})
 
@@ -141,6 +143,7 @@ def build_graph(client, on_phase=None):
                 tool_calls_used=tool_calls_used,
                 arxiv_calls_used=arxiv_used,
                 web_calls_used=web_used,
+                skill_reads_used=skill_used,
                 attempts_made=attempts_made,
                 already_succeeded=key in successful,
             )
@@ -153,6 +156,8 @@ def build_graph(client, on_phase=None):
                     arxiv_used += 1
                 if name == "web_search":
                     web_used += 1
+                if name == "read_skill":
+                    skill_used += 1
                 dispatched_name, result, _ = _execute_tool_call(tool_call)
                 name = dispatched_name
                 if not is_tool_failure(name, result):
@@ -173,6 +178,7 @@ def build_graph(client, on_phase=None):
             "tool_calls": tool_calls_used,
             "arxiv_calls": arxiv_used,
             "web_calls": web_used,
+            "skill_calls": skill_used,
             "seen_keys": new_seen,
             "attempts": attempts,
             "pending": [],
@@ -225,6 +231,7 @@ def run_turn(messages: list[dict], client, on_phase=None) -> str:
             "tool_calls": 0,
             "arxiv_calls": 0,
             "web_calls": 0,
+            "skill_calls": 0,
             "seen_keys": [],
             "attempts": {},
             "pending": [],
@@ -249,6 +256,7 @@ def main() -> None:
     from cli.ui import (
         APP_VERSION,
         HELP_TEXT,
+        PLACEHOLDER_SKILLS,
         render_splash,
         show_answer,
         show_phase,
@@ -259,7 +267,13 @@ def main() -> None:
 
     console = Console()
     session_id = uuid.uuid4().hex[:12]
-    render_splash(console, TOOL_GROUPS, model=MODEL, session_id=session_id)
+    try:
+        from skills.loader import load_skills, skill_groups
+
+        splash_skills = skill_groups(load_skills())
+    except Exception:
+        splash_skills = PLACEHOLDER_SKILLS
+    render_splash(console, TOOL_GROUPS, splash_skills, model=MODEL, session_id=session_id)
     show_welcome(console)
     show_session_header(console, session_id)
     console.print(f"[dim]Model: {MODEL}  •  {APP_VERSION}  •  /help for commands[/]\n")

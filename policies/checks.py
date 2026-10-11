@@ -9,6 +9,7 @@ import json
 from config import (
     MAX_ARXIV_CALLS_PER_TURN,
     MAX_SAME_CALL_ATTEMPTS,
+    MAX_SKILL_READS_PER_TURN,
     MAX_TOOL_CALLS_PER_TURN,
     MAX_WEB_CALLS_PER_TURN,
 )
@@ -16,6 +17,7 @@ from prompts.messages import (
     ARXIV_LIMIT_MESSAGE,
     DUPLICATE_TOOL_MESSAGE,
     RETRY_LIMIT_MESSAGE,
+    SKILL_LIMIT_MESSAGE,
     TOOL_LIMIT_MESSAGE,
     WEB_LIMIT_MESSAGE,
 )
@@ -95,6 +97,7 @@ def check_tool_call(
     tool_calls_used: int,
     arxiv_calls_used: int,
     web_calls_used: int,
+    skill_reads_used: int,
     attempts_made: int,
     already_succeeded: bool,
 ) -> tuple[bool, str | None]:
@@ -112,4 +115,6 @@ def check_tool_call(
         return True, ARXIV_LIMIT_MESSAGE
     if name == "web_search" and web_calls_used >= MAX_WEB_CALLS_PER_TURN:
         return True, WEB_LIMIT_MESSAGE
+    if name == "read_skill" and skill_reads_used >= MAX_SKILL_READS_PER_TURN:
+        return True, SKILL_LIMIT_MESSAGE
     return False, None

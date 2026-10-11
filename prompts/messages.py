@@ -22,6 +22,10 @@ MODEL_LIMIT_ANSWER = (
     "I reached the model-call limit for this request. "
     "Please ask me to continue if more work is needed."
 )
+SKILL_LIMIT_MESSAGE = (
+    "Skill limit reached for this request. Use the skills "
+    "already loaded in the conversation."
+)
 
 BASH_APPROVAL_PROMPT = "Run this command? [y/N]: "
 BASH_REQUEST_HEADER = "Bash command requested:"
