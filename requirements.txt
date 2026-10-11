@@ -2,6 +2,7 @@ arxiv
 ddgs
 groq
 langgraph
+langsmith
 playwright
 prompt_toolkit
 python-dotenv

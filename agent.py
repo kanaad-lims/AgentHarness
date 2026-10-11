@@ -8,6 +8,14 @@ from typing import Annotated, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from llm import DEBUG_TOKEN_USAGE, MODEL, call_llm, create_client
+from observability import (
+    TurnRecorder,
+    current_turn,
+    model_usage,
+    tool_verdict,
+    turn_metadata,
+    verdict_for_blocked,
+)
 from policies import (
     MAX_MODEL_CALLS_PER_TURN,
     MAX_TOOL_RESULT_CHARS,
@@ -104,8 +112,19 @@ def build_graph(client, on_phase=None):
             emit("planning")
             request_messages.append(plan_message(current_plan))
 
+        started = time.perf_counter()
         response = call_llm(request_messages, client, TOOL_SCHEMAS)
+        model_latency = time.perf_counter() - started
         requested_tools = list(getattr(response, "tool_calls", None) or [])
+        turn = current_turn.get()
+        if turn is not None:
+            recorder, turn_id = turn
+            recorder.log_model_call(
+                turn_id,
+                model_usage(response),
+                model_latency,
+                len(request_messages),
+            )
         try:
             dumped = response.model_dump(exclude_none=True)
         except Exception:
@@ -137,6 +156,7 @@ def build_graph(client, on_phase=None):
             arguments = parse_tool_arguments(args_text)
             key = call_key(name, arguments)
             attempts_made = attempts.get(key, 0)
+            tool_started = time.perf_counter()
             blocked, message = check_tool_call(
                 name,
                 arguments,
@@ -149,6 +169,7 @@ def build_graph(client, on_phase=None):
             )
             if blocked:
                 result = message
+                verdict = verdict_for_blocked(message)
             else:
                 tool_calls_used += 1
                 attempts[key] = attempts_made + 1
@@ -160,9 +181,22 @@ def build_graph(client, on_phase=None):
                     skill_used += 1
                 dispatched_name, result, _ = _execute_tool_call(tool_call)
                 name = dispatched_name
-                if not is_tool_failure(name, result):
+                failed = is_tool_failure(name, result)
+                verdict = tool_verdict(name, result, failed)
+                if not failed:
                     successful.add(key)
                     new_seen.append(key)
+            turn = current_turn.get()
+            if turn is not None:
+                recorder, turn_id = turn
+                recorder.log_tool_call(
+                    turn_id,
+                    name,
+                    arguments,
+                    verdict,
+                    len(result),
+                    time.perf_counter() - tool_started,
+                )
 
             tool_messages.append(
                 {
@@ -224,26 +258,39 @@ def run_turn(messages: list[dict], client, on_phase=None) -> str:
     """Run one user turn through the LangGraph workflow."""
     emit = on_phase or (lambda _phase: None)
     app = build_graph(client, on_phase=emit)
-    result = app.invoke(
-        {
-            "messages": list(messages),
-            "model_calls": 0,
-            "tool_calls": 0,
-            "arxiv_calls": 0,
-            "web_calls": 0,
-            "skill_calls": 0,
-            "seen_keys": [],
-            "attempts": {},
-            "pending": [],
-        },
-        config={"recursion_limit": RECURSION_LIMIT},
+    recorder = TurnRecorder()
+    user_text = next(
+        (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"),
+        "",
     )
+    turn_id = recorder.start_turn(user_text, MODEL)
+    token = current_turn.set((recorder, turn_id))
+    try:
+        result = app.invoke(
+            {
+                "messages": list(messages),
+                "model_calls": 0,
+                "tool_calls": 0,
+                "arxiv_calls": 0,
+                "web_calls": 0,
+                "skill_calls": 0,
+                "seen_keys": [],
+                "attempts": {},
+                "pending": [],
+            },
+            config={"recursion_limit": RECURSION_LIMIT},
+        )
+    finally:
+        current_turn.reset(token)
     messages[:] = result["messages"]
     emit("accepted")
+    answer = ""
     for message in reversed(result["messages"]):
         if isinstance(message, dict) and message.get("role") == "assistant":
-            return message.get("content", "") or ""
-    return ""
+            answer = message.get("content", "") or ""
+            break
+    recorder.end_turn(turn_id, answer, turn_metadata(result, MODEL))
+    return answer
 
 
 def main() -> None:
