@@ -280,6 +280,10 @@ def run_turn(messages: list[dict], client, on_phase=None) -> str:
             },
             config={"recursion_limit": RECURSION_LIMIT},
         )
+    except Exception as error:
+        recorder.log_error(f"{type(error).__name__}: {error}")
+        recorder.end_turn(turn_id, "", turn_metadata({}, MODEL))
+        raise
     finally:
         current_turn.reset(token)
     messages[:] = result["messages"]

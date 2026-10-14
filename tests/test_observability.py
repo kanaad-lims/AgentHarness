@@ -10,15 +10,17 @@ from observability import (
 from prompts.messages import TOOL_LIMIT_MESSAGE
 
 
-def test_recorder_disabled_without_key(monkeypatch):
+def test_recorder_disabled_without_key(monkeypatch, tmp_path):
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    monkeypatch.setattr("observability.recorder.RUNS_DIR", tmp_path)
     recorder = TurnRecorder()
 
-    assert recorder.enabled is False
+    assert recorder.enabled is True
     assert recorder.start_turn("hi", "model") is None
     assert recorder.log_model_call(None, {}, 0.1, 1) is None
     assert recorder.log_tool_call(None, "bash", {}, "executed", 10, 0.1) is None
-    assert recorder.end_turn(None, "answer", {}) is None
+    recorder.end_turn(None, "answer", {})
+    assert (tmp_path / "turns.jsonl").exists()
 
 
 def test_recorder_never_raises(monkeypatch):

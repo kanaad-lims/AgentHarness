@@ -52,3 +52,6 @@ desktop.ini
 *.log
 *.tmp
 *.bak
+
+# Local turn records (observability sink; LangSmith is the shared one)
+runs/
