@@ -2,7 +2,6 @@
 
 import json
 
-TOOL_LIMIT_MESSAGE = "Tool-call limit reached for this user request."
 DUPLICATE_TOOL_MESSAGE = (
     "Duplicate tool call skipped; use the earlier result in this conversation."
 )

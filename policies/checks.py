@@ -10,7 +10,6 @@ from config import (
     MAX_ARXIV_CALLS_PER_TURN,
     MAX_SAME_CALL_ATTEMPTS,
     MAX_SKILL_READS_PER_TURN,
-    MAX_TOOL_CALLS_PER_TURN,
     MAX_WEB_CALLS_PER_TURN,
 )
 from prompts.messages import (
@@ -18,7 +17,6 @@ from prompts.messages import (
     DUPLICATE_TOOL_MESSAGE,
     RETRY_LIMIT_MESSAGE,
     SKILL_LIMIT_MESSAGE,
-    TOOL_LIMIT_MESSAGE,
     WEB_LIMIT_MESSAGE,
 )
 
@@ -94,7 +92,6 @@ def check_tool_call(
     name: str,
     arguments: dict,
     *,
-    tool_calls_used: int,
     arxiv_calls_used: int,
     web_calls_used: int,
     skill_reads_used: int,
@@ -105,8 +102,6 @@ def check_tool_call(
 
     Returns (blocked, message). A None message means allowed.
     """
-    if tool_calls_used >= MAX_TOOL_CALLS_PER_TURN:
-        return True, TOOL_LIMIT_MESSAGE
     if already_succeeded:
         return True, DUPLICATE_TOOL_MESSAGE
     if attempts_made >= MAX_SAME_CALL_ATTEMPTS:

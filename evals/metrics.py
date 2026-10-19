@@ -7,12 +7,9 @@ and free: budgets, tool discipline, citations, recovery.
 from __future__ import annotations
 
 
-def within_budgets(turn: dict, *, max_tool_calls: int = 6, max_tokens_in: int = 7000) -> tuple[bool, str]:
-    """Total executed tools and summed prompt tokens stay under budget."""
-    executed = [t for t in turn.get("tool_trace", []) if t.get("verdict") == "executed"]
+def within_budgets(turn: dict, *, max_tokens_in: int = 7000) -> tuple[bool, str]:
+    """Summed prompt tokens stay under budget; tool calls have no global cap."""
     tokens_in = sum(call.get("prompt_tokens") or 0 for call in turn.get("model_calls", []))
-    if len(executed) > max_tool_calls:
-        return False, f"executed {len(executed)} tools over budget {max_tool_calls}"
     if tokens_in > max_tokens_in:
         return False, f"input tokens {tokens_in} over budget {max_tokens_in}"
     return True, "ok"

@@ -7,7 +7,6 @@ from observability import (
     turn_metadata,
     verdict_for_blocked,
 )
-from prompts.messages import TOOL_LIMIT_MESSAGE
 
 
 def test_recorder_disabled_without_key(monkeypatch, tmp_path):
@@ -37,7 +36,6 @@ def test_recorder_never_raises(monkeypatch):
 
 
 def test_verdict_mapping():
-    assert verdict_for_blocked(TOOL_LIMIT_MESSAGE) == "limit:total"
     assert verdict_for_blocked("something else") == "blocked"
     assert tool_verdict("bash", "Command was not run; nope", False) == "denied"
     assert tool_verdict("bash", "Error: boom", True) == "failed"

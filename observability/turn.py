@@ -5,12 +5,10 @@ from prompts.messages import (
     DUPLICATE_TOOL_MESSAGE,
     RETRY_LIMIT_MESSAGE,
     SKILL_LIMIT_MESSAGE,
-    TOOL_LIMIT_MESSAGE,
     WEB_LIMIT_MESSAGE,
 )
 
 _BLOCK_REASONS = {
-    TOOL_LIMIT_MESSAGE: "limit:total",
     DUPLICATE_TOOL_MESSAGE: "duplicate",
     RETRY_LIMIT_MESSAGE: "limit:retries",
     ARXIV_LIMIT_MESSAGE: "limit:arxiv",

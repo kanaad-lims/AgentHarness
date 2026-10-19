@@ -3,7 +3,6 @@ from policies import checks
 
 def _allow(**overrides):
     kwargs = {
-        "tool_calls_used": 0,
         "arxiv_calls_used": 0,
         "web_calls_used": 0,
         "skill_reads_used": 0,
@@ -18,8 +17,8 @@ def test_allows_normal_call():
     assert _allow() == (False, None)
 
 
-def test_blocks_over_total_limit():
-    assert _allow(tool_calls_used=99)[0] is True
+def test_allows_calls_without_a_global_tool_cap():
+    assert _allow()[0] is False
 
 
 def test_blocks_duplicate_success_but_allows_failure_retry():
@@ -31,7 +30,6 @@ def test_blocks_arxiv_over_its_limit():
     blocked, message = checks.check_tool_call(
         "arxiv_search",
         {"query": "x"},
-        tool_calls_used=0,
         arxiv_calls_used=99,
         web_calls_used=0,
         skill_reads_used=0,
@@ -46,7 +44,6 @@ def test_blocks_web_over_its_limit():
     blocked, message = checks.check_tool_call(
         "web_search",
         {"query": "x"},
-        tool_calls_used=0,
         arxiv_calls_used=0,
         web_calls_used=99,
         skill_reads_used=0,
@@ -61,7 +58,6 @@ def test_blocks_skill_reads_over_limit():
     blocked, message = checks.check_tool_call(
         "read_skill",
         {"skill_name": "arxiv-research"},
-        tool_calls_used=0,
         arxiv_calls_used=0,
         web_calls_used=0,
         skill_reads_used=99,

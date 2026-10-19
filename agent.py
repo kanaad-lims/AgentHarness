@@ -160,7 +160,6 @@ def build_graph(client, on_phase=None):
             blocked, message = check_tool_call(
                 name,
                 arguments,
-                tool_calls_used=tool_calls_used,
                 arxiv_calls_used=arxiv_used,
                 web_calls_used=web_used,
                 skill_reads_used=skill_used,
