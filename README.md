@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>BOREAS-AGENT</h1>
+  <img src="images/harness_banner.png" alt="BOREAS-AGENT terminal demo" width="800" />
   <p><em>A modular, from-scratch coding-agent harness built with LangGraph and Python.</em></p>
   <p>Designed for tool-use loops, enforced policies, compact formatting, and a clean terminal experience.</p>
 </div>
@@ -18,6 +18,10 @@
     <img src="https://img.shields.io/badge/Docs-DeepWiki-4B32C3?style=flat-square&logo=readthedocs&logoColor=white" alt="DeepWiki Documentation" />
   </a>
 </div>
+
+<!-- <div align="center">
+  <img src="images/harness_banner.png" alt="BOREAS-AGENT terminal demo" width="800" />
+</div> -->
 
 ---
 
