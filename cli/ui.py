@@ -148,8 +148,11 @@ HELP_TEXT = """[bold]Commands[/]
   /tools             List registered tools
   /model             Show current model
   /bye, /exit, /quit  Leave
+  /session list      Lists the present sessions; shows current active session
+  /session new       Start a new session
+  /session switch <session ID> Switch to a specific session
 
-Tool shortcuts (/<tool>) land with the skills pass; tools run via the model until then."""
+"""
 
 PHASE_LABELS = {
     "thinking": "thinking...",
