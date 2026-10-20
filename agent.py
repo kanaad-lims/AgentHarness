@@ -1,8 +1,9 @@
-"""LangGraph agent loop reusing the pure-Python tool implementation."""
+"""LangGraph agent loop with persistence, checkpointer, and compaction."""
 
 import json
 import operator
 import time
+import uuid
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -33,6 +34,26 @@ from tools.browser_tool import run_browser
 from tools.registry import TOOL_SCHEMAS, TOOLS
 from tools.todo_tool import get_todos
 
+from policies.checks import (
+    approx_tokens,
+    call_key,
+    check_tool_call,
+    is_tool_failure,
+    parse_tool_arguments,
+    tool_call_fields,
+)
+
+from persistence import (
+    get_saver,
+    compile_with_checkpointer,
+    make_config,
+    should_compact,
+    compact_state_messages_sync,
+    add_message,
+    create_session as create_db_session,
+    get_session,
+)
+
 
 class AgentState(TypedDict):
     messages: Annotated[list[dict], operator.add]
@@ -44,16 +65,7 @@ class AgentState(TypedDict):
     seen_keys: Annotated[list[str], operator.add]
     attempts: dict
     pending: list
-
-
-from policies.checks import (
-    approx_tokens,
-    call_key,
-    check_tool_call,
-    is_tool_failure,
-    parse_tool_arguments,
-    tool_call_fields,
-)
+    conversation_summary: str  # Persisted via checkpointer
 
 
 def _execute_tool_call(tool_call) -> tuple[str, str, dict]:
@@ -101,13 +113,19 @@ def _execute_tool_call(tool_call) -> tuple[str, str, dict]:
 
 
 def build_graph(client, on_phase=None):
-    """Build the LangGraph workflow around the existing tool implementation."""
+    """Build the LangGraph workflow with checkpointing."""
     emit = on_phase or (lambda _phase: None)
 
     def call_model(state: AgentState) -> dict:
+        # Compaction check before model call
+        messages = state["messages"]
+        summary = state.get("conversation_summary", "")
+        if should_compact(messages):
+            messages, summary = compact_state_messages_sync(messages, summary)
+
         current_plan = get_todos()
         emit("thinking")
-        request_messages = list(state["messages"])
+        request_messages = list(messages)
         if current_plan:
             emit("planning")
             request_messages.append(plan_message(current_plan))
@@ -136,6 +154,7 @@ def build_graph(client, on_phase=None):
             "messages": [dumped],
             "model_calls": state["model_calls"] + 1,
             "pending": requested_tools,
+            "conversation_summary": summary,
         }
 
     def run_tools(state: AgentState) -> dict:
@@ -215,6 +234,7 @@ def build_graph(client, on_phase=None):
             "seen_keys": new_seen,
             "attempts": attempts,
             "pending": [],
+            "conversation_summary": state.get("conversation_summary", ""),
         }
 
     def stop_at_limit(_state: AgentState) -> dict:
@@ -226,6 +246,7 @@ def build_graph(client, on_phase=None):
                 }
             ],
             "pending": [],
+            "conversation_summary": _state.get("conversation_summary", ""),
         }
 
     def route_after_model(state: AgentState) -> str:
@@ -250,21 +271,31 @@ def build_graph(client, on_phase=None):
         "tools", route_after_tools, {"model": "model", "limit": "limit"}
     )
     graph.add_edge("limit", END)
-    return graph.compile()
+
+    # Compile with checkpointer
+    return compile_with_checkpointer(graph)
 
 
-def run_turn(messages: list[dict], client, on_phase=None) -> str:
-    """Run one user turn through the LangGraph workflow."""
+def run_turn(messages: list[dict], client, *, session_id: str, on_phase=None) -> str:
+    """Run one user turn through the LangGraph workflow with checkpointing."""
     emit = on_phase or (lambda _phase: None)
+
+    # Ensure session exists in archive
+    if not get_session(session_id):
+        create_db_session(session_id)
+
     app = build_graph(client, on_phase=emit)
     recorder = TurnRecorder()
+
     user_text = next(
         (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"),
         "",
     )
     turn_id = recorder.start_turn(user_text, MODEL)
     token = current_turn.set((recorder, turn_id))
+
     try:
+        config = make_config(session_id, recursion_limit=RECURSION_LIMIT)
         result = app.invoke(
             {
                 "messages": list(messages),
@@ -276,8 +307,9 @@ def run_turn(messages: list[dict], client, on_phase=None) -> str:
                 "seen_keys": [],
                 "attempts": {},
                 "pending": [],
+                "conversation_summary": "",
             },
-            config={"recursion_limit": RECURSION_LIMIT},
+            config=config,
         )
     except Exception as error:
         recorder.log_error(f"{type(error).__name__}: {error}")
@@ -285,21 +317,29 @@ def run_turn(messages: list[dict], client, on_phase=None) -> str:
         raise
     finally:
         current_turn.reset(token)
+
     messages[:] = result["messages"]
     emit("accepted")
+
+    # Extract final assistant answer
     answer = ""
     for message in reversed(result["messages"]):
         if isinstance(message, dict) and message.get("role") == "assistant":
             answer = message.get("content", "") or ""
             break
+
+    # Archive user message and final answer
+    if user_text:
+        add_message(session_id, "user", user_text)
+    if answer:
+        add_message(session_id, "assistant", answer)
+
     recorder.end_turn(turn_id, answer, turn_metadata(result, MODEL))
     return answer
 
 
 def main() -> None:
-    """Start the orchestrator agent."""
-    import uuid
-
+    """Start the orchestrator agent with session management."""
     from rich.console import Console
 
     from cli.prompt import create_session
@@ -316,13 +356,17 @@ def main() -> None:
     from tools.registry import TOOL_GROUPS, TOOLS
 
     console = Console()
+
+    # Generate or load session_id
     session_id = uuid.uuid4().hex[:12]
+
     try:
         from skills.loader import load_skills, skill_groups
 
         splash_skills = skill_groups(load_skills())
     except Exception:
         splash_skills = PLACEHOLDER_SKILLS
+
     render_splash(console, TOOL_GROUPS, splash_skills, model=MODEL, session_id=session_id)
     show_welcome(console)
     show_session_header(console, session_id)
@@ -330,11 +374,11 @@ def main() -> None:
 
     client = None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    session = create_session()
+    prompt_session = create_session()
 
     while True:
         try:
-            user_input = session.prompt().strip()
+            user_input = prompt_session.prompt().strip()
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye!🧃")
             break
@@ -358,15 +402,51 @@ def main() -> None:
             continue
 
         if user_input == "/browser" or user_input.startswith("/browser "):
-            command = user_input[len("/browser"):].strip()
+            command = user_input[len("/browser") :].strip()
             print(f"\n{run_browser(command)}\n")
+            continue
+
+        # Session commands
+        if user_input == "/session new":
+            session_id = uuid.uuid4().hex[:12]
+            create_db_session(session_id)  # Persist immediately
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            console.print(f"[green]New session:[/] {session_id}")
+            show_session_header(console, session_id)
+            continue
+
+        if user_input == "/session list":
+            from persistence import list_sessions
+            sessions = list_sessions()
+            if not sessions:
+                console.print("[dim]No sessions yet.[/]")
+            else:
+                console.print("[bold]Sessions:[/]")
+                for s in sessions:
+                    marker = " ← current" if s["session_id"] == session_id else ""
+                    console.print(f"  {s['session_id']}  {s['title']}  ({s['updated_at']}){marker}")
+            continue
+
+        if user_input.startswith("/session switch "):
+            target_id = user_input[len("/session switch "):].strip()
+            if not target_id:
+                console.print("[red]Usage: /session switch <session_id>[/]")
+                continue
+            if not get_session(target_id):
+                console.print(f"[red]Session not found:[/] {target_id}")
+                continue
+            session_id = target_id
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            console.print(f"[green]Switched to session:[/] {session_id}")
+            show_session_header(console, session_id)
             continue
 
         if client is None:
             client = create_client()
+
         messages.append({"role": "user", "content": user_input})
         try:
-            answer = run_turn(messages, client, on_phase=lambda phase: show_phase(console, phase))
+            answer = run_turn(messages, client, session_id=session_id, on_phase=lambda phase: show_phase(console, phase))
             show_answer(console, answer)
         except Exception as error:
             print(f"\nRequest failed: {error}\n")
