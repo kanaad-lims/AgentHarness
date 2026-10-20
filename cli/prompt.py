@@ -13,6 +13,9 @@ COMMANDS = [
     "/browser",
     "/model",
     "/tools",
+    "/session new",
+    "/session list",
+    "/session switch",
 ]
 
 STYLE = Style.from_dict(
