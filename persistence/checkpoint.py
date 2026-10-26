@@ -61,15 +61,40 @@ def list_threads(saver: SqliteSaver | None = None) -> list[dict]:
 
 
 def get_latest_checkpoint(thread_id: str, saver: SqliteSaver | None = None) -> dict | None:
-    """Fetch the latest checkpoint for a thread (for inspection)."""
+    """Fetch the latest checkpoint for a thread (for inspection) — or None."""
     if saver is None:
         saver = get_saver()
-    # Use the checkpointer's get_tuple method
-    checkpoint_tuple = saver.get({"configurable": {"thread_id": thread_id}})
+    latest = saver.get({"configurable": {"thread_id": thread_id}})
+    if not latest:
+        return None
+    if isinstance(latest, dict):
+        # Some LangGraph versions return the raw checkpoint dict directly.
+        return {"checkpoint": latest}
+    return {
+        "checkpoint": latest.checkpoint,
+        "metadata": getattr(latest, "metadata", {}),
+        "parent_config": getattr(latest, "parent_config", None),
+    }
+
+
+def load_thread_state(thread_id: str) -> dict | None:
+    """Load the model's working context for a session from its checkpoint.
+
+    The checkpointer is the source of truth on resume (it holds tool results
+    and the conversation summary), NOT the messages archive table.
+
+    Returns {"messages": [...], "conversation_summary": str}, or None when
+    the thread has no checkpoint yet (fresh or pre-checkpointer sessions).
+    """
+    checkpoint_tuple = get_latest_checkpoint(thread_id)
     if checkpoint_tuple is None:
         return None
+    values = checkpoint_tuple.get("checkpoint", {})
+    if not isinstance(values, dict):
+        return None
+    channel_values = values.get("channel_values", {})
+    messages = [dict(m) for m in channel_values.get("messages", []) if isinstance(m, dict)]
     return {
-        "checkpoint": checkpoint_tuple.checkpoint,
-        "metadata": checkpoint_tuple.metadata,
-        "parent_config": checkpoint_tuple.parent_config,
+        "messages": messages,
+        "conversation_summary": channel_values.get("conversation_summary", "") or "",
     }

@@ -8,7 +8,7 @@ from llm import create_client, call_llm
 from config import MODEL
 
 # ─── Configuration ──────────────────────────────────────────────────────
-TOKEN_BUDGET = 6000          # Primary trigger: estimated tokens in messages
+TOKEN_BUDGET = 8000          # Primary trigger: estimated tokens in messages
 MESSAGE_BUDGET = 20          # Fallback trigger: message count
 MIN_RECENT_TURNS = 2         # Always keep at least this many complete turns
 
@@ -136,13 +136,19 @@ async def summarize_turns(turns: list[list[dict]]) -> str:
     return (response.content or "").strip()
 
 
-def compact_state_messages(messages: list[dict], conversation_summary: str = "") -> tuple[list[dict], str]:
+async def compact_state_messages(messages: list[dict], conversation_summary: str = "") -> tuple[list[dict], str]:
     """Compact messages by summarizing old turns, keeping recent turns intact.
 
     Returns:
         (new_messages, updated_conversation_summary)
+
+    Preserves system prompt at index 0 for prefix caching.
     """
-    turns = split_into_turns(messages)
+    # Preserve system prompt (index 0) for prefix caching
+    system_prompt = messages[0] if messages and messages[0].get("role") == "system" else None
+    other_messages = messages[1:] if system_prompt else messages
+
+    turns = split_into_turns(other_messages)
     if len(turns) <= MIN_RECENT_TURNS:
         return messages, conversation_summary
 
@@ -153,7 +159,7 @@ def compact_state_messages(messages: list[dict], conversation_summary: str = "")
     # Summarize old turns
     new_summary_part = ""
     if old_turns:
-        new_summary_part = summarize_turns(old_turns)
+        new_summary_part = await summarize_turns(old_turns)
 
     # Combine with existing summary
     if conversation_summary and new_summary_part:
@@ -161,8 +167,10 @@ def compact_state_messages(messages: list[dict], conversation_summary: str = "")
     else:
         updated_summary = conversation_summary or new_summary_part
 
-    # Build new message list: summary as system message + recent turns
+    # Rebuild with system prompt FIRST (prefix cache), then summary, then recent turns
     new_messages = []
+    if system_prompt:
+        new_messages.append(system_prompt)
     if updated_summary:
         new_messages.append({
             "role": "system",
@@ -181,8 +189,14 @@ def compact_state_messages_sync(messages: list[dict], conversation_summary: str 
 
     Use this when you can't await (e.g., inside the graph node).
     For production, replace with the async version called separately.
+
+    Preserves system prompt at index 0 for prefix caching.
     """
-    turns = split_into_turns(messages)
+    # Preserve system prompt (index 0) for prefix caching
+    system_prompt = messages[0] if messages and messages[0].get("role") == "system" else None
+    other_messages = messages[1:] if system_prompt else messages
+
+    turns = split_into_turns(other_messages)
     if len(turns) <= MIN_RECENT_TURNS:
         return messages, conversation_summary
 
@@ -206,7 +220,10 @@ def compact_state_messages_sync(messages: list[dict], conversation_summary: str 
 
     updated_summary = "\n\n---\n\n".join(summary_parts) if summary_parts else ""
 
+    # Rebuild with system prompt FIRST (prefix cache), then summary, then recent turns
     new_messages = []
+    if system_prompt:
+        new_messages.append(system_prompt)
     if updated_summary:
         new_messages.append({
             "role": "system",

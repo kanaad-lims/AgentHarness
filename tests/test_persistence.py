@@ -156,8 +156,8 @@ def test_compaction_helpers():
     small_messages = [{"role": "user", "content": "Hi"}]
     assert not should_compact(small_messages)
 
-    # Large messages should trigger
-    large_content = "x" * 30000  # ~7500 tokens
+    # Large messages should trigger (TOKEN_BUDGET = 8000)
+    large_content = "x" * 35000  # ~8750 tokens
     large_messages = [{"role": "user", "content": large_content}]
     assert should_compact(large_messages)
 

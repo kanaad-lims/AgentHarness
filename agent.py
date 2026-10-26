@@ -1,10 +1,9 @@
 """LangGraph agent loop with persistence, checkpointer, and compaction."""
 
 import json
-import operator
 import time
 import uuid
-from typing import Annotated, TypedDict
+from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -56,13 +55,17 @@ from persistence import (
 
 
 class AgentState(TypedDict):
-    messages: Annotated[list[dict], operator.add]
+    # Replacement semantics: nodes return the FULL list, so compaction persists.
+    messages: list[dict]
     model_calls: int
     tool_calls: int
     arxiv_calls: int
     web_calls: int
     skill_calls: int
-    seen_keys: Annotated[list[str], operator.add]
+    # Per-turn scope (plain list, replaced on invoke): dedup keys must NOT
+    # persist across turns on a checkpointer-backed session, or a legitimate
+    # re-run in a later turn would be blocked as a duplicate forever.
+    seen_keys: list[str]
     attempts: dict
     pending: list
     conversation_summary: str  # Persisted via checkpointer
@@ -133,7 +136,15 @@ def build_graph(client, on_phase=None):
         started = time.perf_counter()
         response = call_llm(request_messages, client, TOOL_SCHEMAS)
         model_latency = time.perf_counter() - started
-        requested_tools = list(getattr(response, "tool_calls", None) or [])
+        # Normalize to plain dicts: raw SDK/namespace objects are not
+        # checkpoint-serializable (msgpack) and only ID/name/args are used.
+        requested_tools = [
+            {"id": call_id, "function": {"name": name, "arguments": args_text}}
+            for call_id, name, args_text in (
+                tool_call_fields(call)
+                for call in (getattr(response, "tool_calls", None) or [])
+            )
+        ]
         turn = current_turn.get()
         if turn is not None:
             recorder, turn_id = turn
@@ -151,7 +162,7 @@ def build_graph(client, on_phase=None):
                 "content": getattr(response, "content", None) or "",
             }
         return {
-            "messages": [dumped],
+            "messages": [*messages, dumped],
             "model_calls": state["model_calls"] + 1,
             "pending": requested_tools,
             "conversation_summary": summary,
@@ -226,27 +237,25 @@ def build_graph(client, on_phase=None):
             )
 
         return {
-            "messages": tool_messages,
+            "messages": [*state["messages"], *tool_messages],
             "tool_calls": tool_calls_used,
             "arxiv_calls": arxiv_used,
             "web_calls": web_used,
             "skill_calls": skill_used,
-            "seen_keys": new_seen,
+            "seen_keys": [*state.get("seen_keys", []), *new_seen],
             "attempts": attempts,
             "pending": [],
             "conversation_summary": state.get("conversation_summary", ""),
         }
 
-    def stop_at_limit(_state: AgentState) -> dict:
+    def stop_at_limit(state: AgentState) -> dict:
         return {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": MODEL_LIMIT_ANSWER,
-                }
-            ],
+            "messages": [*state["messages"], {
+                "role": "assistant",
+                "content": MODEL_LIMIT_ANSWER,
+            }],
             "pending": [],
-            "conversation_summary": _state.get("conversation_summary", ""),
+            "conversation_summary": state.get("conversation_summary", ""),
         }
 
     def route_after_model(state: AgentState) -> str:
@@ -276,7 +285,14 @@ def build_graph(client, on_phase=None):
     return compile_with_checkpointer(graph)
 
 
-def run_turn(messages: list[dict], client, *, session_id: str, on_phase=None) -> str:
+def run_turn(
+    messages: list[dict],
+    client,
+    *,
+    session_id: str,
+    conversation_summary: str = "",
+    on_phase=None,
+) -> str:
     """Run one user turn through the LangGraph workflow with checkpointing."""
     emit = on_phase or (lambda _phase: None)
 
@@ -307,7 +323,7 @@ def run_turn(messages: list[dict], client, *, session_id: str, on_phase=None) ->
                 "seen_keys": [],
                 "attempts": {},
                 "pending": [],
-                "conversation_summary": "",
+                "conversation_summary": conversation_summary,
             },
             config=config,
         )
@@ -374,6 +390,7 @@ def main() -> None:
 
     client = None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    conversation_summary = ""
     prompt_session = create_session()
 
     while True:
@@ -411,6 +428,7 @@ def main() -> None:
             session_id = uuid.uuid4().hex[:12]
             create_db_session(session_id)  # Persist immediately
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            conversation_summary = ""
             console.print(f"[green]New session:[/] {session_id}")
             show_session_header(console, session_id)
             continue
@@ -435,9 +453,28 @@ def main() -> None:
             if not get_session(target_id):
                 console.print(f"[red]Session not found:[/] {target_id}")
                 continue
+
+            from persistence.checkpoint import load_thread_state
+            loaded = load_thread_state(target_id)
+
             session_id = target_id
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            console.print(f"[green]Switched to session:[/] {session_id}")
+            if loaded and loaded["messages"]:
+                # Checkpointed history already includes the system prompt at
+                # index 0 and the summary message (if compaction ran).
+                messages = loaded["messages"]
+                conversation_summary = loaded["conversation_summary"]
+                console.print(
+                    f"[green]Switched to session:[/] {session_id} "
+                    f"([dim]{len(messages)} messages restored[/])"
+                )
+            else:
+                # Fresh session, or one created before the checkpointer existed.
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                conversation_summary = ""
+                console.print(
+                    f"[green]Switched to session:[/] {session_id} "
+                    f"[dim](no prior context)[/]"
+                )
             show_session_header(console, session_id)
             continue
 
@@ -446,7 +483,13 @@ def main() -> None:
 
         messages.append({"role": "user", "content": user_input})
         try:
-            answer = run_turn(messages, client, session_id=session_id, on_phase=lambda phase: show_phase(console, phase))
+            answer = run_turn(
+                messages,
+                client,
+                session_id=session_id,
+                conversation_summary=conversation_summary,
+                on_phase=lambda phase: show_phase(console, phase),
+            )
             show_answer(console, answer)
         except Exception as error:
             print(f"\nRequest failed: {error}\n")

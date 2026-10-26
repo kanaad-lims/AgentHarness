@@ -16,7 +16,7 @@ def test_run_turn_returns_final_model_answer(monkeypatch):
     monkeypatch.setattr(agent, "call_llm", lambda *_args: response)
     messages = [{"role": "system", "content": agent.SYSTEM_PROMPT}, {"role": "user", "content": "Hi"}]
 
-    answer = agent.run_turn(messages, client=object())
+    answer = agent.run_turn(messages, client=object(), session_id="test-session")
 
     assert answer == "Hello!"
     assert messages[-1] == {"role": "assistant", "content": "Hello!"}
@@ -51,7 +51,7 @@ def test_run_turn_dispatches_tool_then_sends_result_back(monkeypatch):
     )
     messages = [{"role": "system", "content": agent.SYSTEM_PROMPT}, {"role": "user", "content": "Plan this"}]
 
-    answer = agent.run_turn(messages, client=object())
+    answer = agent.run_turn(messages, client=object(), session_id="test-session")
 
     assert answer == "Plan saved."
     assert todo_tool.get_todos() == plan
@@ -87,7 +87,7 @@ def test_run_turn_enforces_arxiv_limit_for_parallel_tool_calls(monkeypatch):
     monkeypatch.setattr(agent, "call_llm", lambda *_args: next(responses))
     messages = [{"role": "system", "content": agent.SYSTEM_PROMPT}]
 
-    agent.run_turn(messages, client=object())
+    agent.run_turn(messages, client=object(), session_id="test-session")
 
     assert searches == ["topic 0", "topic 1", "topic 2"]
     tool_results = [message["content"] for message in messages if message.get("role") == "tool"]
@@ -112,7 +112,7 @@ def test_duplicate_tool_call_is_not_executed_twice(monkeypatch):
     monkeypatch.setattr(agent, "call_llm", lambda *_args: next(responses))
     messages = [{"role": "system", "content": agent.SYSTEM_PROMPT}]
 
-    agent.run_turn(messages, client=object())
+    agent.run_turn(messages, client=object(), session_id="test-session")
 
     assert calls == ["attention"]
     tool_results = [message["content"] for message in messages if message.get("role") == "tool"]
@@ -146,7 +146,7 @@ def test_failed_tool_call_may_retry_identical_arguments(monkeypatch):
     monkeypatch.setattr(agent, "call_llm", lambda *_args: next(responses))
     messages = [{"role": "system", "content": agent.SYSTEM_PROMPT}]
 
-    agent.run_turn(messages, client=object())
+    agent.run_turn(messages, client=object(), session_id="test-session")
 
     assert calls == ["pwd", "pwd"]
     tool_results = [message["content"] for message in messages if message.get("role") == "tool"]

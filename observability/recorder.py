@@ -52,9 +52,6 @@ class TurnRecorder:
     # -- local sink --
 
     def _write_jsonl(self) -> None:
-        if os.getenv("PYTEST_CURRENT_TEST"):
-            return
-
         def _default(value):
             return str(value)
 
