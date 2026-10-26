@@ -1,6 +1,9 @@
 """DuckDuckGo web search tool (raw execution; formatting lives in presenters)."""
 
-from config import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+from config import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, TOOL_TIMEOUT_SECONDS
+from tools._timeout import run_with_timeout
 
 WEB_SEARCH_TOOL_SCHEMA = {
     "type": "function",
@@ -46,8 +49,13 @@ def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict[
     try:
         from ddgs import DDGS
 
-        with DDGS() as ddgs:
-            results = ddgs.text(query, region="wt-wt", max_results=max_results)
+        def _search_now() -> list:
+            with DDGS() as ddgs:
+                return ddgs.text(query, region="wt-wt", max_results=max_results)
+
+        results = run_with_timeout(_search_now, TOOL_TIMEOUT_SECONDS)
+    except FuturesTimeoutError:
+        return {"error": f"Web search timed out after {TOOL_TIMEOUT_SECONDS}s; try again or refine the query."}
     except Exception as error:
         return {"error": f"Web search failed: {error}"}
 

@@ -1,6 +1,8 @@
 import arxiv
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
-from config import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
+from config import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, TOOL_TIMEOUT_SECONDS
+from tools._timeout import run_with_timeout
 
 ARXIV_SEARCH_TOOL_SCHEMA = {
     "type": "function",
@@ -49,16 +51,23 @@ def arxiv_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dic
 
     try:
         client = arxiv.Client()
-        return [
-            {
-                "title": result.title.strip(),
-                "authors": ", ".join(author.name for author in result.authors),
-                "published": result.published.date().isoformat(),
-                "summary": result.summary.strip(),
-                "url": result.entry_id,
-                "pdf_url": result.pdf_url or "",
-            }
-            for result in client.results(search)
-        ]
+        return run_with_timeout(_fetch_results, TOOL_TIMEOUT_SECONDS, client, search)
     except Exception as error:
+        if isinstance(error, FuturesTimeoutError):
+            return {"error": f"arXiv search timed out after {TOOL_TIMEOUT_SECONDS}s; refine the query or retry later."}
         return {"error": f"arXiv search failed: {error}"}
+
+
+def _fetch_results(client: "arxiv.Client", search: "arxiv.Search") -> list[dict[str, str]]:
+    """Fetch and format results (runs in a worker thread under the timeout)."""
+    return [
+        {
+            "title": result.title.strip(),
+            "authors": ", ".join(author.name for author in result.authors),
+            "published": result.published.date().isoformat(),
+            "summary": result.summary.strip(),
+            "url": result.entry_id,
+            "pdf_url": result.pdf_url or "",
+        }
+        for result in client.results(search)
+    ]

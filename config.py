@@ -41,6 +41,7 @@ BASH_STDERR_TAIL_CHARS = int(os.getenv("BASH_STDERR_TAIL_CHARS", "4000"))
 # --- arXiv tool ---
 DEFAULT_MAX_RESULTS = 5
 MAX_RESULTS_LIMIT = 10
+TOOL_TIMEOUT_SECONDS = 45  # Wall-clock cap per arxiv/web call (they have no internal timeout)
 
 # --- Web search ---
 WEB_MAX_RESULTS_PER_CALL = 10
