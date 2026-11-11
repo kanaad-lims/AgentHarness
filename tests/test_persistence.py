@@ -209,5 +209,52 @@ def test_full_turn_archive():
     assert msgs[1]["content"] == assistant_msg
 
 
+def test_cumulative_summary_survives_subsequent_compactions(monkeypatch):
+    """Regression test for the summary-wipe bug.
+
+    Bug: every turn boundary, the invoke input reset the conversation_summary
+    channel to the caller's never-updated value (""). The NEXT compaction then
+    rebuilt its summary from that empty base, so each epoch's summary REPLACED
+    the previous one. The first conversation's summary vanished after one
+    compaction cycle.
+
+    Fix: run_turn reads the checkpointed summary itself and seeds the channel
+    with it, so compaction appends (old + new) instead of replacing.
+
+    This test drives 4 turns through run_turn; each compaction must EXTEND,
+    never erase, what earlier epochs summarized.
+    """
+    import types
+
+    import agent
+
+    answers = iter(
+        [types.SimpleNamespace(content=f"Answer {i}", tool_calls=[]) for i in range(1, 5)]
+    )
+    monkeypatch.setattr(agent, "call_llm", lambda *_a, **_k: next(answers))
+
+    def huge_user(marker: str) -> str:
+        # ~35k chars trips TOKEN_BUDGET=8000 on its own; the marker must sit
+        # inside the first 100 chars because the heuristic summary takes
+        # that prefix of each user turn.
+        return marker + " " + "x" * 35000
+
+    messages = [{"role": "system", "content": agent.SYSTEM_PROMPT}]
+    for marker in ("MARKER-ALPHA", "MARKER-BETA", "MARKER-GAMMA", "MARKER-DELTA"):
+        messages.append({"role": "user", "content": huge_user(marker)})
+        agent.run_turn(messages, client=object(), session_id="cumulative-regression")
+
+    from persistence.checkpoint import get_latest_checkpoint
+
+    state = get_latest_checkpoint("cumulative-regression")
+    values = state["checkpoint"].get("channel_values", {})
+    summary = values.get("conversation_summary", "") or ""
+
+    # Epoch 1 (ALPHA) must still be present even after epochs 2..4 compacted.
+    assert "MARKER-ALPHA" in summary, f"old summary lost! got: {summary!r}"
+    # Epoch 2 (BETA) was appended on top of epoch 1 by the second compaction.
+    assert "MARKER-BETA" in summary, f"second epoch not appended! got: {summary!r}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

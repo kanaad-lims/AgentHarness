@@ -52,6 +52,7 @@ from persistence import (
     create_session as create_db_session,
     get_session,
 )
+from persistence.checkpoint import load_thread_state
 
 
 class AgentState(TypedDict):
@@ -290,7 +291,7 @@ def run_turn(
     client,
     *,
     session_id: str,
-    conversation_summary: str = "",
+    conversation_summary: str | None = None,
     on_phase=None,
 ) -> str:
     """Run one user turn through the LangGraph workflow with checkpointing."""
@@ -299,6 +300,15 @@ def run_turn(
     # Ensure session exists in archive
     if not get_session(session_id):
         create_db_session(session_id)
+
+    # Base summary: read the checkpoint directly EVERY turn. The checkpoint is
+    # the single durable home of the cumulative summary — seeding the channel
+    # from a caller variable would reset it each turn boundary and destroy
+    # accumulated summaries at the next compaction. An explicit param (rare)
+    # still overrides.
+    if conversation_summary is None:
+        loaded = load_thread_state(session_id) or {}
+        conversation_summary = loaded.get("conversation_summary", "") or ""
 
     app = build_graph(client, on_phase=emit)
     recorder = TurnRecorder()
@@ -390,7 +400,6 @@ def main() -> None:
 
     client = None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    conversation_summary = ""
     prompt_session = create_session()
 
     while True:
@@ -428,7 +437,6 @@ def main() -> None:
             session_id = uuid.uuid4().hex[:12]
             create_db_session(session_id)  # Persist immediately
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            conversation_summary = ""
             console.print(f"[green]New session:[/] {session_id}")
             show_session_header(console, session_id)
             continue
@@ -461,8 +469,9 @@ def main() -> None:
             if loaded and loaded["messages"]:
                 # Checkpointed history already includes the system prompt at
                 # index 0 and the summary message (if compaction ran).
+                # The conversation summary is NOT held here — run_turn reads
+                # it from the checkpoint itself on every turn.
                 messages = loaded["messages"]
-                conversation_summary = loaded["conversation_summary"]
                 console.print(
                     f"[green]Switched to session:[/] {session_id} "
                     f"([dim]{len(messages)} messages restored[/])"
@@ -470,7 +479,6 @@ def main() -> None:
             else:
                 # Fresh session, or one created before the checkpointer existed.
                 messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-                conversation_summary = ""
                 console.print(
                     f"[green]Switched to session:[/] {session_id} "
                     f"[dim](no prior context)[/]"
@@ -487,7 +495,6 @@ def main() -> None:
                 messages,
                 client,
                 session_id=session_id,
-                conversation_summary=conversation_summary,
                 on_phase=lambda phase: show_phase(console, phase),
             )
             show_answer(console, answer)
