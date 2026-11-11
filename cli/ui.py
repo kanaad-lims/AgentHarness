@@ -158,7 +158,7 @@ PHASE_LABELS = {
     "thinking": "thinking...",
     "planning": "planning...",
     "selecting": "selecting tool...",
-    "accepted": "task accepted",
+    "accepted": "Completed",
 }
 
 
